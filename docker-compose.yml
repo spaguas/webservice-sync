@@ -1,0 +1,18 @@
+version: '3.3'
+services:
+  web:
+    build:
+      context: ./
+    volumes:
+      - .:/src
+    command: node .
+    restart: unless-stopped
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "128m"
+    ports:
+      - "30001:3000"
+    environment:
+      NODE_ENV: production
+      DEBUG: nodejs-docker-express:*
