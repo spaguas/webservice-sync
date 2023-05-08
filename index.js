@@ -99,7 +99,7 @@ let endDt   = (process.env.RANGE_COLLECT_DATE_END != "") ? moment(process.env.RA
 
 //Getting all DAEE Flu,Plu,Piez Data
 var job_stations = new CronJob(
-	'0 */50 * * * *',
+	'* */1 * * *',
 	function() {
         loadStationPrefixes();
 	},
@@ -109,14 +109,14 @@ var job_stations = new CronJob(
 );
 
 var job_station_not_located = new CronJob(
-    '0 */30 * * * *',
+    '* */1 * * *',
     function(){
         /**Cemaden Stations not Located */
         fs.readFile('./stations/cemaden_stations.json', (err, data) => {
             if (err) throw err;
             let stations = JSON.parse(data);
             
-            console.log("Trying registry not located stations")
+            console.log("Trying registry not located stations - CEMADEN")
 
         });
 
@@ -125,7 +125,7 @@ var job_station_not_located = new CronJob(
             if (err) throw err;
             let stations = JSON.parse(data);
             
-            console.log("Trying registry not located stations")
+            console.log("Trying registry not located stations - ANA")
 
         });
 
@@ -134,7 +134,7 @@ var job_station_not_located = new CronJob(
             if (err) throw err;
             let stations = JSON.parse(data);
             
-            console.log("Trying registry not located stations")
+            console.log("Trying registry not located stations - IAC")
 
         });
 
@@ -143,7 +143,7 @@ var job_station_not_located = new CronJob(
             if (err) throw err;
             let stations = JSON.parse(data);
             
-            console.log("Trying registry not located stations")
+            console.log("Trying registry not located stations - SAISP")
 
         });
     },
@@ -155,14 +155,19 @@ var job_station_not_located = new CronJob(
 var job_daee_sync = new CronJob(
     process.env.CRONJOB_DAEE,
     function(){
-        fs.readFileSync('./stations/daee_stations.json', (err, data) => {
+        console.log("Teste de execução")
+        fs.readFile('./stations/daee_stations.json', (err, data) => {
             if (err) throw err;
             let stations = JSON.parse(data);
             console.log("DAEE Stations: ", stations.length);
             
             if(stations.length > 0){
-                //getMeasurements('DAEE',startDt,endDt,stations);
-                getMeasurements('SAISP',startDt,endDt,stations);
+                console.log("Getting DAEE Stations");
+                getMeasurements('DAEE',startDt,endDt,stations);
+                //getMeasurements('SAISP',startDt,endDt,stations);
+            }
+            else{
+                console.log("Zero Stations => ", stations.length);
             }
         });
     },
@@ -456,16 +461,27 @@ function getMeasurements(station_owner,startDt,endDt,stations){
         });
 
         
-        
-        fs.writeFile('./stations/not_located/'+station_owner.toLowerCase()+'_stations.json', JSON.stringify(station_not_located, null, 2), (err) => {
-            if (err) throw err;
-            console.log("Stations from ",station_owner," not Located");
-        });
+        try{
+            fs.writeFile('./stations/not_located/'+station_owner.toLowerCase()+'_stations.json', JSON.stringify(station_not_located, null, 2), (err) => {
+                if (err){
+                    console.log("Erro NotLocated: ", err);
+                };
+                console.log("Stations from ",station_owner," not Located");
+            });
+        }catch (err) {
+            console.error("Erro de permissão do arquivo not_located...");
+        };
 
-        fs.writeFile('./stations/without_data/'+station_owner.toLowerCase()+'_stations.json', JSON.stringify(station_without_data, null, 2), (err) => {
-            if (err) throw err;
-            console.log("Stations from ",station_owner," without data");
-        });
+        try{
+            fs.writeFile('./stations/without_data/'+station_owner.toLowerCase()+'_stations.json', JSON.stringify(station_without_data, null, 2),(err) => {
+                if (err){
+                    console.log("Erro WithoutData: ", err);
+                };
+                console.log("Stations from ",station_owner," without data");
+            });
+        }catch(err){
+            console.error("Erro de permissão do without_data...");
+        }
 
     })
 }
@@ -480,9 +496,9 @@ function loadStationPrefixes(){
         url: (process.env.SIBH_API_ENDPOINT+"station_prefixes")
     }).then(res => {
         
-        loadStationPrefixes = res.data;
+        station_prefixes = res.data;
 
-        cemaden_stations = _.filter(loadStationPrefixes, function(o){
+        cemaden_stations = _.filter(station_prefixes, function(o){
             return o.station_owner.name == 'CEMADEN'
         });
 
