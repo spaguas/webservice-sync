@@ -268,10 +268,13 @@ function updateSyncronizedAt(prefix, data){
                 prefix,
                 dates
             ]);
-        }).then(e => {
+        }).then(e => {           
             
-            
-            db_sibh.any("UPDATE station_prefixes SET date_last_measurement=$1, id_last_measurement=$2, date_last_transmission=$3 WHERE prefix = $4",[
+            let diffInMinutes = calculateTimeDifferenceInMinutes(moment.utc(_.last(dates)), moment().utc());
+            let transmission_status = (diffInMinutes < 60) ? 0 : 1 ;
+
+            db_sibh.any("UPDATE station_prefixes SET transmission_status=$1,date_last_measurement=$2, id_last_measurement=$3, date_last_transmission=$4 WHERE prefix = $5",[
+                transmission_status,
                 _.last(dates),
                 _.last(ids),
                 _.last(transmissions),
@@ -282,11 +285,30 @@ function updateSyncronizedAt(prefix, data){
                 console.error("Error SQL: ", error);
             });
         });
-                
-        
+    }else{
+        db_sibh.any("UPDATE station_prefixes SET transmission_status=$1,date_last_measurement=$2, id_last_measurement=$3, date_last_transmission=$4 WHERE prefix = $5",[
+            1,
+            _.last(dates),
+            _.last(ids),
+            _.last(transmissions),
+            prefix
+        ]).then(w => {
+            console.log(prefix, " - Measurements Updated!!! => [",_.last(dates),",",_.last(ids),"]");
+        }).catch(error => {
+            console.error("Error SQL: ", error);
+        });
     }
 
+    
+
     return false;
+}
+
+function calculateTimeDifferenceInMinutes(startDate, endDate) {
+    var diff = moment.duration(endDate.diff(startDate));
+    var diffInMinutes = diff.asMinutes();
+    console.log("Diff Time [",startDate,",",endDate,"] => ", diffInMinutes);  
+    return diffInMinutes;
 }
 
 /**
