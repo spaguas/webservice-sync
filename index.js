@@ -271,7 +271,7 @@ function updateSyncronizedAt(prefix, data, transmission_gap, measurement_gap){
         }).then(e => {           
             
             let diffInMinutes = calculateTimeDifferenceInMinutes(moment.utc(_.last(dates)), moment().utc());
-            let transmission_status = (diffInMinutes < transmission_gap) ? 0 : 1 ;
+            let transmission_status = (diffInMinutes < (transmission_gap * 2)) ? 0 : 1 ;
 
             db_sibh.any("UPDATE station_prefixes SET transmission_status=$1,date_last_measurement=$2, id_last_measurement=$3, date_last_transmission=$4 WHERE prefix = $5",[
                 transmission_status,

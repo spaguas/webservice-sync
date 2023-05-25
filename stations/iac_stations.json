@@ -1,5 +1,76 @@
 [
   {
+    "id": 33410,
+    "station_id": 2736,
+    "prefix": "IAC-Ilhabela Norte - SP",
+    "alt_prefix": null,
+    "station_type_id": 2,
+    "created_at": "2017-04-27T17:47:17.330Z",
+    "updated_at": "2020-04-29T05:24:58.735Z",
+    "station_owner_id": 19,
+    "operation_status": "ativo",
+    "transmission_status": "pendente",
+    "transmission_gap": 20,
+    "measurement_status": 0,
+    "measurement_gap": 20,
+    "battery_status": 0,
+    "data_source": "WS-IAC",
+    "date_last_transmission": "2023-04-12T12:10:47.712Z",
+    "id_last_measurement": 3818481971,
+    "date_last_measurement": null,
+    "id_penultimate_measurement": 3818481965,
+    "date_penultimate_measurement": "2023-04-12T11:10:00.000Z",
+    "date_penultimate_transmission": "2023-04-12T11:10:47.746Z",
+    "cod_project": "NULL\n",
+    "altitude": 0,
+    "public": true,
+    "date_start_operation": null,
+    "date_end_operation": null,
+    "station": {
+      "id": 2736,
+      "name": "Ilhabela Norte - SP",
+      "latitude": "-23.825404088993587",
+      "longitude": "-45.35604715347291",
+      "accumulated_rain_event": false,
+      "city": {
+        "id": 162,
+        "name": "Ilhabela",
+        "created_at": "2022-09-08T14:32:01.251Z",
+        "updated_at": "2022-09-08T14:32:01.251Z",
+        "cod_ibge": "3520400",
+        "uf": "SP"
+      },
+      "ugrhi": {
+        "id": 5,
+        "name": "LITORAL NORTE",
+        "created_at": "2022-09-08T14:32:16.989Z",
+        "updated_at": "2022-09-08T14:32:16.989Z",
+        "cod": 3
+      },
+      "subugrhi": {
+        "id": 60,
+        "name": "Ilha Bela Leste",
+        "cod": 35,
+        "created_at": "2022-09-08T14:32:27.629Z",
+        "updated_at": "2022-09-08T14:32:27.629Z",
+        "ugrhi_id": 5
+      },
+      "associable_name": "Ilhabela Norte - SP"
+    },
+    "station_type": {
+      "id": 2,
+      "name": "Pluviométrico",
+      "created_at": "2022-09-08T14:45:08.878Z",
+      "updated_at": "2022-09-08T14:45:08.878Z"
+    },
+    "station_owner": {
+      "id": 19,
+      "name": "IAC",
+      "created_at": "2022-09-08T14:31:34.880Z",
+      "updated_at": "2022-09-08T14:31:34.880Z"
+    }
+  },
+  {
     "id": 33358,
     "station_id": 3440,
     "prefix": "IAC-Assis - SP",
@@ -13617,77 +13688,6 @@
         "ugrhi_id": 14
       },
       "associable_name": "Itaberá - SP"
-    },
-    "station_type": {
-      "id": 2,
-      "name": "Pluviométrico",
-      "created_at": "2022-09-08T14:45:08.878Z",
-      "updated_at": "2022-09-08T14:45:08.878Z"
-    },
-    "station_owner": {
-      "id": 19,
-      "name": "IAC",
-      "created_at": "2022-09-08T14:31:34.880Z",
-      "updated_at": "2022-09-08T14:31:34.880Z"
-    }
-  },
-  {
-    "id": 33410,
-    "station_id": 2736,
-    "prefix": "IAC-Ilhabela Norte - SP",
-    "alt_prefix": null,
-    "station_type_id": 2,
-    "created_at": "2017-04-27T17:47:17.330Z",
-    "updated_at": "2020-04-29T05:24:58.735Z",
-    "station_owner_id": 19,
-    "operation_status": "ativo",
-    "transmission_status": "pendente",
-    "transmission_gap": 20,
-    "measurement_status": 0,
-    "measurement_gap": 20,
-    "battery_status": 0,
-    "data_source": "WS-IAC",
-    "date_last_transmission": "2023-04-12T12:10:47.712Z",
-    "id_last_measurement": 3818481971,
-    "date_last_measurement": null,
-    "id_penultimate_measurement": 3818481965,
-    "date_penultimate_measurement": "2023-04-12T11:10:00.000Z",
-    "date_penultimate_transmission": "2023-04-12T11:10:47.746Z",
-    "cod_project": "NULL\n",
-    "altitude": 0,
-    "public": true,
-    "date_start_operation": null,
-    "date_end_operation": null,
-    "station": {
-      "id": 2736,
-      "name": "Ilhabela Norte - SP",
-      "latitude": "-23.825404088993587",
-      "longitude": "-45.35604715347291",
-      "accumulated_rain_event": false,
-      "city": {
-        "id": 162,
-        "name": "Ilhabela",
-        "created_at": "2022-09-08T14:32:01.251Z",
-        "updated_at": "2022-09-08T14:32:01.251Z",
-        "cod_ibge": "3520400",
-        "uf": "SP"
-      },
-      "ugrhi": {
-        "id": 5,
-        "name": "LITORAL NORTE",
-        "created_at": "2022-09-08T14:32:16.989Z",
-        "updated_at": "2022-09-08T14:32:16.989Z",
-        "cod": 3
-      },
-      "subugrhi": {
-        "id": 60,
-        "name": "Ilha Bela Leste",
-        "cod": 35,
-        "created_at": "2022-09-08T14:32:27.629Z",
-        "updated_at": "2022-09-08T14:32:27.629Z",
-        "ugrhi_id": 5
-      },
-      "associable_name": "Ilhabela Norte - SP"
     },
     "station_type": {
       "id": 2,
