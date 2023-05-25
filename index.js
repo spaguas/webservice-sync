@@ -252,13 +252,13 @@ var job_saisp_sync = new CronJob(
  * @param {*} prefix 
  * @param {*} data 
  */
-function updateSyncronizedAt(prefix, data){
+function updateSyncronizedAt(prefix, data, transmission_gap, measurement_gap){
     if(data.length > 0 && prefix){
         let dates = _.map(data, function(e){ return moment(e.date_hour).format('YYYY-MM-DD HH:mm') });
         let ids   = _.map(data, function(e){ return e.id });
         let transmissions = _.map(data, function(e){ return e.created_at } );
 
-        console.log("Last Date to Compare: ", _.last(dates));
+        console.log("Last Date to Compare: ", _.last(dates)," <> ", transmission_gap,",",measurement_gap);
         
         db_source.task(t => {
             
@@ -271,7 +271,7 @@ function updateSyncronizedAt(prefix, data){
         }).then(e => {           
             
             let diffInMinutes = calculateTimeDifferenceInMinutes(moment.utc(_.last(dates)), moment().utc());
-            let transmission_status = (diffInMinutes < 60) ? 0 : 1 ;
+            let transmission_status = (diffInMinutes < transmission_gap) ? 0 : 1 ;
 
             db_sibh.any("UPDATE station_prefixes SET transmission_status=$1,date_last_measurement=$2, id_last_measurement=$3, date_last_transmission=$4 WHERE prefix = $5",[
                 transmission_status,
@@ -432,7 +432,9 @@ function getMeasurements(station_owner,startDt,endDt,stations){
                             transmission_type_id: 4,
                             station_prefix_id: station_plu.id,
                             created_at: md.created_at,
-                            updated_at: md.created_at
+                            updated_at: md.created_at,
+                            transmission_gap: station_plu.transmission_gap,
+                            measurement_gap: station_plu.measurement_gap
                         })
                     }
 
@@ -448,7 +450,9 @@ function getMeasurements(station_owner,startDt,endDt,stations){
                             transmission_type_id: 4,
                             station_prefix_id: station_flu.id,
                             created_at: md.created_at,
-                            updated_at: md.created_at
+                            updated_at: md.created_at,
+                            transmission_gap: station_flu.transmission_gap,
+                            measurement_gap: station_flu.measurement_gap
                         });
                     }
 
@@ -465,7 +469,8 @@ function getMeasurements(station_owner,startDt,endDt,stations){
                         console.log(station_owner," => "+prefix," - Measurements Inserted => "+data.length+"/"+measurements.length+" => SIBH_NEW");
 
                         if(data.length > 0){
-                            updateSyncronizedAt(prefix,data);
+                            
+                            updateSyncronizedAt(prefix,data,vals_sibh[0].transmission_gap,vals_sibh[0].measurement_gap);
                         }
                     });
 

@@ -146,3 +146,7 @@ dist
 
 measurements
 /measurements
+
+stations
+/stations
+stations/*
