@@ -262,11 +262,11 @@ function updateSyncronizedAt(prefix, data, transmission_gap, measurement_gap){
         
         db_source.task(t => {
             
-            return t.any('UPDATE measurements SET syncronized_at=$1 WHERE prefix=$2 and to_char(datetime, \'YYYY-MM-DD HH24:MI\') IN ($3:csv)', 
+            return t.any('UPDATE measurements SET syncronized_at=$1 WHERE prefix=$2 and to_char(datetime, \'YYYY-MM-DD HH24:MI\') IN ($3)', 
             [
                 moment().add(3,'hours').format('YYYY-MM-DD HH:mm:ss'),
                 prefix,
-                dates
+                dates.join(",")
             ]);
         }).then(e => {           
             
@@ -468,8 +468,7 @@ function getMeasurements(station_owner,startDt,endDt,stations){
                     db_sibh.any(q_sibh).then(data => {
                         console.log(station_owner," => "+prefix," - Measurements Inserted => "+data.length+"/"+measurements.length+" => SIBH_NEW");
 
-                        if(data.length > 0){
-                            
+                        if(data.length > 0){                            
                             updateSyncronizedAt(prefix,data,vals_sibh[0].transmission_gap,vals_sibh[0].measurement_gap);
                         }
                     });
