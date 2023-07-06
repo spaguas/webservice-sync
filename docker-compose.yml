@@ -7,6 +7,10 @@ services:
       - .:/src
     command: node .
     restart: unless-stopped
+    mem_limit: "1g"
+    mem_reservation: "512m"
+    cpus: "1"
+    cpuset: "2"
     logging:
       driver: "json-file"
       options:

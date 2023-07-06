@@ -6,16 +6,23 @@ const { readdir } = require('fs').promises;
 const path = require('path');
 //const logger = require('./logger');
 const { Worker } = require('worker_threads');
+const util = require("util");
 
 // Load the full build for lodash.
 var _ = require('lodash');
 const { forEach, initial } = require('lodash');
 const { as } = require('pg-promise');
 const { start } = require('repl');
+const { clear } = require('console');
 
 // Load cronjob library
 var CronJob = require('cron').CronJob;
 require('dotenv').config();
+
+const cliProgress = require('cli-progress');
+
+// add bars
+//const progress_full = multibar.create(100, 0);
 
 /* Webservice Database Info */
 const database_user = process.env.DATABASE_USER;
@@ -47,38 +54,76 @@ const pgp = require('pg-promise')({
     query(e){
         //console.log("QUERY: ",e.query);
     },
+    transact(e) {
+        if (e.ctx.finish) {
+            // this is a transaction->finish event;
+            console.log('Duration:', e.ctx.duration);
+            if (e.ctx.success) {
+                // e.ctx.result = resolved data;
+            } else {
+                // e.ctx.result = error/rejection reason;
+            }
+        } else {
+            // this is a transaction->start event;
+            console.log('Start Time:', e.ctx.start);
+        }
+    },
+    task(e) {
+        if (e.ctx.finish) {
+            // this is a task->finish event;
+            console.log('Duration:', e.ctx.duration);
+            if (e.ctx.success) {
+                // e.ctx.result = resolved data;
+            } else {
+                // e.ctx.result = error/rejection reason;
+            }
+        } else {
+            // this is a task->start event;
+            console.log('Start Time:', e.ctx.start);
+        }
+    },
     error(err, e) {
         if (e.cn) {
             // this is a connection-related error
             // cn = safe connection details passed into the library:
             //      if password is present, it is masked by #
-            console.error(e);
+            console.error("ERROR CONNECTION: ", e);
         }
 
         if (e.query) {
             // query string is available
             if (e.params) {
                 // query parameters are available
-                console.error(e.ctx);
+                console.error("ERROR PARAMS: ", e.ctx);
             }
         }
 
         if (e.ctx) {
             // occurred inside a task or transaction
-            console.error(e.ctx);
+            console.error("ERROR TASK: ", e.ctx);
         }
     }
 });
 
 /* Creating db object to connect Database */
 const db_source = pgp({
-    connectionString: 'postgres://'+database_user+':'+database_pass+'@'+database_addr+':'+database_port+'/'+database_name
+    connectionString: 'postgres://'+database_user+':'+database_pass+'@'+database_addr+':'+database_port+'/'+database_name,
+    max: 60,
+    idleTimeoutMillis: 600000,
+    keepAlive: true,
+    allowExitOnIdle: false,
+    application_name: "WS-SYNC"
 });
 
 const cs_source = new pgp.helpers.ColumnSet(
     ['prefix','datetime','rainfall','level','battery_level','station_owner'],
     {table: 'measurements'}
 );
+
+const cs_stations = new pgp.helpers.ColumnSet([
+    'prefix','latitude','longitude','altitude','name','station_owner','station_operator','station_type','city_name','city_cod',
+    'ugrhi_name','ugrhi_cod','subugrhi_name','subugrhi_cod','station_id','station_prefix_id','not_located','without_data', 'prefix_alt', 'measurement_gap', 'transmission_gap'
+],{table: 'stations'});
 
 const db_sibh = pgp({
     connectionString: 'postgres://'+database_user_sibh+':'+database_pass_sibh+'@'+database_addr_sibh+':'+database_port_sibh+'/'+database_name_sibh
@@ -90,317 +135,163 @@ const cs_sibh = new pgp.helpers.ColumnSet(
     'created_at', 'updated_at'],{ table: 'measurements' }
 );
 
-let startDt = (process.env.RANGE_COLLECT_DATE_START != "") ? moment(process.env.RANGE_COLLECT_DATE_START) : moment().subtract(process.env.RANGE_COLLECT_HOURS,'hours');
-let endDt   = (process.env.RANGE_COLLECT_DATE_END != "") ? moment(process.env.RANGE_COLLECT_DATE_END) : moment().add(process.env.RANGE_COLLECT_HOURS, 'hours');
+let startDt = (process.env.RANGE_COLLECT_DATE_START != "-") ? moment(process.env.RANGE_COLLECT_DATE_START) : moment().subtract(process.env.RANGE_COLLECT_HOURS,'hours');
+let endDt   = (process.env.RANGE_COLLECT_DATE_END   != "-") ? moment(process.env.RANGE_COLLECT_DATE_END)   : moment().add(process.env.RANGE_COLLECT_HOURS,'hours');;
 
-/**
- * Start CronJobs
- * */
+let dateRange = [startDt,endDt];
 
-//Getting all DAEE Flu,Plu,Piez Data
-var job_stations = new CronJob(
-	'* */1 * * *',
-	function() {
-        loadStationPrefixes();
-	},
-	null,
-	true,
-	'America/Sao_Paulo'
-);
+console.log("Date Start: ", startDt," - DateEnd: ", endDt);
 
-var job_station_not_located = new CronJob(
-    '* */1 * * *',
+
+
+
+//loadStationPrefixes();
+
+//sync_measurements(null,dateRange,limit,offset," ORDER BY datetime DESC");
+
+var job_retro_sync = new CronJob(
+    process.env.CRONJOB_RETRO_SYNC,
     function(){
-        /**Cemaden Stations not Located */
-        fs.readFile('./stations/cemaden_stations.json', (err, data) => {
-            if (err) throw err;
-            let stations = JSON.parse(data);
-            
-            console.log("Trying registry not located stations - CEMADEN")
-
-        });
-
-        /**Ana Stations not Located */
-        fs.readFile('./stations/ana_stations.json', (err, data) => {
-            if (err) throw err;
-            let stations = JSON.parse(data);
-            
-            console.log("Trying registry not located stations - ANA")
-
-        });
-
-        /**IAC Stations not Located */
-        fs.readFile('./stations/iac_stations.json', (err, data) => {
-            if (err) throw err;
-            let stations = JSON.parse(data);
-            
-            console.log("Trying registry not located stations - IAC")
-
-        });
-
-        /**Saisp Stations not Located */
-        fs.readFile('./stations/saisp_stations.json', (err, data) => {
-            if (err) throw err;
-            let stations = JSON.parse(data);
-            
-            console.log("Trying registry not located stations - SAISP")
-
-        });
-    },
-    null,
-    true,
-    'America/Sao_Paulo'
-);
-
-var job_daee_sync = new CronJob(
-    process.env.CRONJOB_DAEE,
-    function(){
-        console.log("Teste de execução")
-        fs.readFile('./stations/daee_stations.json', (err, data) => {
-            if (err) throw err;
-            let stations = JSON.parse(data);
-            console.log("DAEE Stations: ", stations.length);
-            
-            if(stations.length > 0){
-                console.log("Getting DAEE Stations");
-                getMeasurements('DAEE',startDt,endDt,stations);
-                //getMeasurements('SAISP',startDt,endDt,stations);
-            }
-            else{
-                console.log("Zero Stations => ", stations.length);
-            }
-        });
-    },
-    null,
-    true,
-    'America/Sao_Paulo'
-);
-
-var job_cemaden_sync = new CronJob(
-    process.env.CRONJOB_CEMADEN,
-    function(){
-        fs.readFile('./stations/cemaden_stations.json', (err, data) => {
-            if (err) throw err;
-            let stations = JSON.parse(data);
-            console.log("CEMADEN Stations: ", stations.length);
-            
-            if(stations.length > 0){
-                getMeasurements('CEMADEN',startDt,endDt,stations);
-            }
-        });
-    },
-    null,
-    true,
-    'America/Sao_Paulo'
-);
-
-var job_iac_sync = new CronJob(
-    process.env.CRONJOB_IAC,
-    function(){
-        fs.readFile('./stations/iac_stations.json', (err, data) => {
-            if (err) throw err;
-            let stations = JSON.parse(data);
-            console.log("IAC Stations: ", stations.length);
-            
-            if(stations.length > 0){
-                getMeasurements('IAC',startDt,endDt,stations);
-            }
-        });
-    },
-    null,
-    true,
-    'America/Sao_Paulo'
-);
-
-var job_ana_sync = new CronJob(
-    process.env.CRONJOB_ANA,
-    function(){
-        fs.readFile('./stations/ana_stations.json', (err, data) => {
-            if (err) throw err;
-            let stations = JSON.parse(data);
-            console.log("ANA Stations: ", stations.length);
-            
-            if(stations.length > 0){
-                getMeasurements('ANA',startDt,endDt,stations);
-            }
-        });
-    },
-    null,
-    true,
-    'America/Sao_Paulo'
-);
-
-var job_saisp_sync = new CronJob(
-    process.env.CRONJOB_SAISP,
-    function(){
-        fs.readFile('./stations/saisp_stations.json', (err, data) => {
-            if (err) throw err;
-            let stations = JSON.parse(data);
         
-            if(stations.length > 0){
-                getMeasurements('SAISP',startDt,endDt,stations);
-            }
-        });
+        let limit  = 10000;
+        let offset = 0;
+        
+        let startDt = (process.env.RANGE_COLLECT_DATE_START != "-") ? moment(process.env.RANGE_COLLECT_DATE_START) : moment().subtract(process.env.RANGE_COLLECT_HOURS,'hours');
+        let endDt   = (process.env.RANGE_COLLECT_DATE_END   != "-") ? moment(process.env.RANGE_COLLECT_DATE_END)   : moment();
+        let dateRange = [startDt,endDt];
+
+        //console.log("Get measurements limit ",limit," offset ", offset);        
+        sync_measurements(null,dateRange,limit,offset," ORDER BY datetime DESC");
+        offset += limit;
     },
     null,
     true,
     'America/Sao_Paulo'
 );
-
 /**
- * Função que atualiza o campo de data de sincronização
- * @param {*} prefix 
- * @param {*} data 
+ * Function to check if measurement exist in measurements database
+ * @param {*} station_prefix_id 
+ * @param {*} datetime 
  */
-function updateSyncronizedAt(prefix, data, transmission_gap, measurement_gap){
-    if(data.length > 0 && prefix){
-        let dates = _.map(data, function(e){ return moment(e.date_hour).format('YYYY-MM-DD HH:mm') });
-        let ids   = _.map(data, function(e){ return e.id });
-        let transmissions = _.map(data, function(e){ return e.created_at } );
+async function checkMeasurementsExists(station_prefix_id, datetime){
+    //db_source.any("SELECT * FROM measurements WHERE prefix")
+    return await db_sibh.any("SELECT 1 FROM measurements WHERE station_prefix_id = $1 and to_char(date_hour, \'YYYY-MM-DD HH24:MI\') = $2 LIMIT 1", [station_prefix_id, datetime]);
+}
 
-        console.log("Last Date to Compare: ", _.last(dates)," <> ", transmission_gap,",",measurement_gap);
-        
-        db_source.task(t => {
-            
-            return t.any('UPDATE measurements SET syncronized_at=$1 WHERE prefix=$2 and to_char(datetime, \'YYYY-MM-DD HH24:MI\') IN ($3)', 
-            [
-                moment().add(3,'hours').format('YYYY-MM-DD HH:mm:ss'),
-                prefix,
-                dates.join(",")
-            ]);
-        }).then(e => {           
-            
-            let diffInMinutes = calculateTimeDifferenceInMinutes(moment.utc(_.last(dates)), moment().utc());
-            let transmission_status = (diffInMinutes < (transmission_gap * 2)) ? 0 : 1 ;
+/**
+ * Update all Stations Without Measurements
+ * @returns None
+ */
+async function updateStationStatusWithoutMeasurements(){
+    return await db_sibh.any("UPDATE station_prefixes SET transmission_status = 0, measurement_status = 0, updated_at = NOW() WHERE date_last_transmission is null");
+}
 
-            db_sibh.any("UPDATE station_prefixes SET transmission_status=$1,date_last_measurement=$2, id_last_measurement=$3, date_last_transmission=$4 WHERE prefix = $5",[
-                transmission_status,
-                _.last(dates),
-                _.last(ids),
-                _.last(transmissions),
-                prefix
-            ]).then(w => {
-                console.log(prefix, " - Measurements Updated!!! => [",_.last(dates),",",_.last(ids),"]");
-            }).catch(error => {
-                console.error("Error SQL: ", error);
-            });
-        });
-    }else{
-        db_sibh.any("UPDATE station_prefixes SET transmission_status=$1,date_last_measurement=$2, id_last_measurement=$3, date_last_transmission=$4 WHERE prefix = $5",[
-            1,
-            _.last(dates),
-            _.last(ids),
-            _.last(transmissions),
-            prefix
-        ]).then(w => {
-            console.log(prefix, " - Measurements Updated!!! => [",_.last(dates),",",_.last(ids),"]");
-        }).catch(error => {
-            console.error("Error SQL: ", error);
-        });
+/**
+ * Function to get measurements by paramters
+ * @param {*} station_owner 
+ * @param {*} date_range 
+ * @param {*} limit 
+ * @param {*} offset 
+ * @param {*} order_by 
+ */
+function sync_measurements(station_owner, date_range, limit,offset, order_by){
+    
+    //current_progress = multibar.create(100, 0);
+
+    getMeasurements(station_owner,null,date_range,null,limit,offset,order_by).then(measurements => {
+    console.log("Total of Measurements: ", measurements.length);
+
+    if(measurements.length == 0){
+        offset = 0;
     }
 
+    let mds_grouped = _.groupBy(measurements, 'prefix');
     
-
-    return false;
-}
-
-function calculateTimeDifferenceInMinutes(startDate, endDate) {
-    var diff = moment.duration(endDate.diff(startDate));
-    var diffInMinutes = diff.asMinutes();
-    console.log("Diff Time [",startDate,",",endDate,"] => ", diffInMinutes);  
-    return diffInMinutes;
-}
-
-/**
- * Function to calculate discharge from measurement
- * @param {*} station 
- * @param {*} measurement 
- * @returns 
- */
-function calculateDischarge(station, measurement){
-    let key_curves = [];
-
-    let station_ckeys = _.filter(key_curves, function(o){ return o.station_id == station.station_id });
-    console.log("Station: ", station.prefix," => With: ",station_ckeys.length," Key Curves");
-
-    let is_valid_level = false;
-    let is_valid_date  = false;
-
-    //Check if level in range
-    _.forEach(station_ckeys, function(e){
-        console.log("Key Curve => ", e);
-
-        //Check if Level is valid for this Key Curve
-        //Check if Key Curve in Date Range
-        //Check if Key Curve is Valid
-        if(e.is_valid){
-            if(measurement.level >= e.start_level && measurement.level < e.end_level){
-                if(measurement.date_hour >= e.date_start && measurement.date_hour <= e.date_end){
-                    return (e.a * Math.pow((measurement.level - e.h0),e.n));
-                }
-            }
-        }
-        else{
-            console.error("Key Curve => ", e.id, " is invalid!");
-        }
-    });
-
-    return -1;
-}
-
-function getMeasurements(station_owner,startDt,endDt,stations){
-    console.log("Loading ",station_owner," Stations: ", stations.length);
     let station_not_located = [];
     let station_without_data = [];
 
-    db_source.tx(async t => {
-        console.log("Get measurements from date range: ", startDt.format('YYYY-MM-DD HH:mm')," > ",endDt.format('YYYY-MM-DD HH:mm'));
+    // note: you have to install this dependency manually since it's not required by cli-progress
+    const colors = require('ansi-colors');
+    
+    const stations_progress = new cliProgress.SingleBar({
+        format: '{task_name} |' + colors.cyan('{bar}') + '| {percentage}% || {value}/{total} syncronized',
+        position: 'right',
+        stopOnComplete: true,
+    },cliProgress.Presets.shades_grey);
 
-        const measurements = await t.any("SELECT * FROM measurements WHERE station_owner = $1 and datetime between $2 and $3 order by datetime asc", [station_owner, startDt, endDt]);
-        return { measurements };
-    }).then(data => {
-        //Grouping Measurements By Prefix
-        mds = _.groupBy(data.measurements, function(o){ return o.prefix });
+    const measurements_progress = new cliProgress.SingleBar({
+        format: '{task_name} |' + colors.cyan('{bar}') + '| {percentage}% || {value}/{total} syncronized',
+        position: 'right',
+        stopOnComplete: true,
+    },cliProgress.Presets.shades_grey);
 
-        forEach(mds, function(measurements,prefix){
+    getStations(station_owner).then(stations => {
+        let i = 1;
 
-            let total_rainfall = 0;
-            
-            let station_prefix = _.first(_.filter(stations, function(o){ 
+        stations_progress.start(mds_grouped.length, 0, {
+            task_name: "Loading stations",
+            total: mds_grouped.length,
+        });
+           
+        
+        const total_stations = _.size(mds_grouped);
+        //current_progress.setTotal(total_stations);
+
+        _.each(mds_grouped, function(mds,prefix){
+            let per = (i*100)/total_stations;
+
+            let vals_flu_sibh = [];
+            let vals_plu_sibh = [];
+
+            let filter_stations = _.filter(stations, function(o){ 
                 if(station_owner == 'IAC'){
 
                     //Prefix from Webservice-Data is Filled with IBGE-Name
                     let cod_ibge = prefix.split("-")[0];
                     let prefix_name = prefix.split("-")[1];
-                    let station_name = o.station.name;
+                    let station_name = o.name;
 
-                    return o.station.city.cod_ibge == cod_ibge;
-                }
-                else{
-                    return o.prefix == prefix || o.alt_prefix == prefix 
-                }
-            }));
+                    return o.city_cod == cod_ibge;
+                }else{
+                    return o.prefix == prefix || o.prefix_alt == prefix }
+            });
 
-            let vals_sibh = [];
+            //console.log("Stations Filtered: ", filter_stations," => Stations: ", stations.length);
+
+            let station = _.first(filter_stations);
+
+            let total_rainfall = 0;
             let previous_md    = 0;
 
-            if(station_prefix){
+            //console.log("Station Object: ", station);
 
-                let station_flu  = _.first(_.filter(stations, function(o){ return o.station.id == station_prefix.station.id && o.station_type_id == 1;}));                
-                let station_plu  = _.first(_.filter(stations, function(o){ return o.station.id == station_prefix.station.id && o.station_type_id == 2;}));
+            if(station != undefined){
+                //
+                let station_plu  = _.first(_.filter(stations, function(o){ return o.station_id == station.station_id && o.station_type == "Pluviométrico"}));
+                let station_flu  = _.first(_.filter(stations, function(o){ return o.station_id == station.station_id && o.station_type == "Fluviométrico"}));
 
-                console.log("Prefix: ",prefix," - total measurements: ", measurements.length);
-                forEach(measurements, function(md,k){
+                if(station_flu){
+                    //calculateDischarges(station_flu.station_id, mds);
+                }
+
+                //Iterate over measurements and insert to sibh
+                _.each(mds, function(md,k){
                     
                     let ws_origin      = 'WS-'+station_owner;
                     let date_hour_obj  = moment(md.datetime).format("YYYY-MM-DD HH:mm");
-                    let rainfall_event = null;
+                    let rainfall_event = null;                   
 
-                    //console.log(station_prefix.station.id, " - ", md.datetime," - ",md.rainfall," - ",md.level," - ",md.discharge," - ",md.battery_level);                    
+                    let per_mds = (k*100)/mds.length;
+
+                    //measurements_progress.update(per_mds);
+
                     if(md.rainfall != null && station_plu){
-                        
+                        //console.log("Pluviometric measurement : ", station_plu.station_prefix_id, " - Measurement: ", md);
+
+                        //checkMeasurementsExists(station_plu.station_prefix_id, date_hour_obj);
 
                         if(station_owner == 'SAISP'){
+                            transmission_gap = station_plu.transmission_gap;
 
                             //let rainfall_value = 0;
                             let hour = parseInt(moment(date_hour_obj).format('HHmm'));
@@ -422,7 +313,7 @@ function getMeasurements(station_owner,startDt,endDt,stations){
                             total_rainfall += md.rainfall;
                         }
                         
-                        vals_sibh.push({
+                        vals_plu_sibh.push({
                             date_hour: date_hour_obj,
                             value: rainfall_event,
                             read_value: total_rainfall,
@@ -430,7 +321,8 @@ function getMeasurements(station_owner,startDt,endDt,stations){
                             information_origin: ws_origin,
                             measurement_classification_type_id: 3,
                             transmission_type_id: 4,
-                            station_prefix_id: station_plu.id,
+                            //station_prefix_id: station_plu.id,
+                            station_prefix_id: station_plu.station_prefix_id,
                             created_at: md.created_at,
                             updated_at: md.created_at,
                             transmission_gap: station_plu.transmission_gap,
@@ -439,8 +331,12 @@ function getMeasurements(station_owner,startDt,endDt,stations){
                     }
 
                     if(md.level != null && station_flu){
-                       
-                        vals_sibh.push({
+                        //console.log("Fluviometric measurement : ", station_flu.station_prefix_id, " - Measurement: ", md);
+                        // console.log("key Curve: ", getKeyCurves(station_flu.station_id));
+
+                        transmission_gap = station_flu.transmission_gap;
+
+                        vals_flu_sibh.push({
                             date_hour: date_hour_obj,
                             value: md.level,
                             read_value: md.discharge,
@@ -448,68 +344,273 @@ function getMeasurements(station_owner,startDt,endDt,stations){
                             information_origin: ws_origin,
                             measurement_classification_type_id: 3,
                             transmission_type_id: 4,
-                            station_prefix_id: station_flu.id,
+                            //station_prefix_id: station_flu.id,
+                            station_prefix_id: station_flu.station_prefix_id,
                             created_at: md.created_at,
                             updated_at: md.created_at,
                             transmission_gap: station_flu.transmission_gap,
                             measurement_gap: station_flu.measurement_gap
                         });
                     }
-
-                    //console.log(prefix," - ",date_hour_obj," - Chuva(mm): ", md.rainfall,"/",total_rainfall," - Nível(m): ", md.level," - Vazão(m³/s): ",md.discharge," - Bateria(v): ",md.battery_level);
-                    //logger.info(prefix+" - "+date_hour_obj+" - Chuva(mm): "+rainfall_event+"/"+total_rainfall.toFixed(2)+" - Nível(m): "+md.level+" - Vazão(m³/s): "+md.discharge+" - Bateria(v): "+md.battery_level);
                 });
 
-                //Add bulk insert of station
-                if(vals_sibh.length > 0){
+                let sync_task = [];
+
+                if(station_plu){
+                    console.log("Station: ["+station_plu.station_id+"] => Prefix: ["+station_plu.prefix+"] - Rainfalls: ", vals_plu_sibh.length);
+
+                    if(vals_plu_sibh.length > 0){
+                        sync_task.push(insertBulkMeasurements(vals_plu_sibh));
+                    }
+                }
+
+                if(station_flu){
+                    console.log("Station: ["+station_flu.station_id+"] => Prefix: ["+station_flu.prefix+"] - Level/Discharge: ", vals_flu_sibh.length);
+
+                    if(vals_flu_sibh.length > 0){
+                        sync_task.push(insertBulkMeasurements(vals_flu_sibh));
+                    }
+                }
+
+                Promise.all(sync_task).then(results => {
+                    let total_length = _.sumBy(results,'length');
+                    let total_mds    = vals_flu_sibh.length + vals_plu_sibh.length;
+
+                    //console.log(prefix, " - Results => ",total_length," => [",vals_plu_sibh.length,"]+[",vals_flu_sibh.length,"] => ",total_mds);
                     
-                    const q_sibh     = pgp.helpers.insert(vals_sibh, cs_sibh) + " ON CONFLICT (station_prefix_id, date_hour, transmission_type_id) DO UPDATE SET read_value = excluded.read_value, value = excluded.value, battery_voltage=excluded.battery_voltage RETURNING id, date_hour, created_at;";
+                    if(results[0] && station_plu){
+                        //Update Station Status
+                        updateStationStatusInSibh(results[0], station.transmission_gap).then(update_stations => {
+                            let prefixes = _.map(update_stations, function(o){ return o.prefix });
+                            console.log("Station Plu Updated in SIBH => ", prefixes);
+                        }).catch(update_station_error => {
+                            console.error("Error Update Station: ", update_station_error);
+                        });
+                    }
+                    if(results[1] && station_flu){
+                        //Update Station Status
+                        updateStationStatusInSibh(results[1], station.transmission_gap).then(update_stations => {
+                            let prefixes = _.map(update_stations, function(o){ return o.prefix });
+                            console.log("Station Flu Updated in SIBH => ", prefixes);
+                        }).catch(update_station_error => {
+                            console.error("Error Update Station: ", update_station_error);
+                        });
+                    }
+                  
+                    //Update measurements if results equals each
+                    if(total_length == total_mds){
 
-                    db_sibh.any(q_sibh).then(data => {
-                        console.log(station_owner," => "+prefix," - Measurements Inserted => "+data.length+"/"+measurements.length+" => SIBH_NEW");
+                        _.each(results, function(rsts,rkey){
+                            updateMeasurementsToSyncronized(prefix,rsts).then(update_result => {
+                                console.log(prefix, " - Measurement Updated => ", update_result.length,"/",rsts.length);
+                            }).catch(updated_measurement_error => {
+                                console.error("Error Update Measurements: ", updated_measurement_error);
+                            });
+                        });
 
-                        if(data.length > 0){                            
-                            updateSyncronizedAt(prefix,data,vals_sibh[0].transmission_gap,vals_sibh[0].measurement_gap);
-                        }
-                    });
+                        //Update all stations without measurements
+                        
+                    }
 
-                   
-                }
-                else{
-                    console.log(prefix," - Measurements not found!");
-                    station_without_data.push(prefix);
-                }
+                    //console.log("Percentage: ", per);
+                })
+
             }
             else{
-                console.log(prefix," - Station not Located");
+                //console.log("Station not located: ", prefix);
                 station_not_located.push(prefix);
             }
+
+            stations_progress.update(per);
+            i++;
         });
 
-        
-        try{
-            fs.writeFile('./stations/not_located/'+station_owner.toLowerCase()+'_stations.json', JSON.stringify(station_not_located, null, 2), (err) => {
-                if (err){
-                    console.log("Erro NotLocated: ", err);
-                };
-                console.log("Stations from ",station_owner," not Located");
-            });
-        }catch (err) {
-            console.error("Erro de permissão do arquivo not_located...");
-        };
+        //process.exit(0);
+        /*_.each(station_not_located, function(prefix,key){
+            console.log("Station not located: ", prefix);
+        });*/
 
-        try{
-            fs.writeFile('./stations/without_data/'+station_owner.toLowerCase()+'_stations.json', JSON.stringify(station_without_data, null, 2),(err) => {
-                if (err){
-                    console.log("Erro WithoutData: ", err);
-                };
-                console.log("Stations from ",station_owner," without data");
-            });
-        }catch(err){
-            console.error("Erro de permissão do without_data...");
+        stations_progress.stop();
+
+        updateStationStatusWithoutMeasurements().then(res => {
+            console.log("Stations Without Measurements Updated: ", res);
+        });
+        //console.log("Stations not located: ",station_not_located.length);
+    });
+   
+
+}).catch(error => {
+    console.error("Error measurements : ", error);
+});
+
+}
+
+
+/**
+ * Method to get stations lists
+ * @returns 
+ */
+async function getStations(station_owner,station_type=null){
+
+    let query = "SELECT * FROM stations";
+    let conds = [];
+
+    if(station_owner){
+        conds.push(" station_owner = '"+station_owner+"' ");
+    }
+
+    if(station_type){
+        conds.push(" station_type = '"+station_type+"' ");
+    }
+
+    if(conds.length > 0){
+        query += " WHERE "+conds.join(" and ");
+    }
+
+    //console.log("Query: ", query);
+
+    return await db_source.any(query);
+};
+
+/**
+ * Method to bulk insert measurement into SIBH Database
+ * @param {*} measurements 
+ */
+async function insertBulkMeasurements(measurements){
+    let on_conflict = "ON CONFLICT (station_prefix_id, date_hour, transmission_type_id) DO UPDATE SET read_value = measurements.read_value, value = measurements.value, battery_voltage=measurements.battery_voltage RETURNING id, station_prefix_id, date_hour, created_at;"
+    const q_sibh = pgp.helpers.insert(measurements, cs_sibh) + on_conflict;
+    return await db_sibh.any(q_sibh);
+}
+
+/**
+ * Method to update station status baseated in inserted measurements
+ * @param {*} inserted_measurements 
+ * @param {*} transmission_gap 
+ * @returns 
+ */
+async function updateStationStatusInSibh(inserted_measurements,transmission_gap){
+    let station_prefix_ids = _.map(inserted_measurements, function(e){ return parseInt(e.station_prefix_id) });
+    let ids                = _.map(inserted_measurements, function(e){ return parseInt(e.id) });
+    let transmissions      = _.map(inserted_measurements, function(e){ return e.created_at } );
+    let dates              = _.map(inserted_measurements, function(e){ return moment(e.date_hour).format('YYYY-MM-DD HH:mm') });
+
+    let diffInMinutes = calculateTimeDifference(moment.utc(_.last(dates)), moment().utc()).asMinutes();
+    let transmission_status = (diffInMinutes <= (transmission_gap * 2)) ? 1 : 0 ; //100% plus in time to gap transmissions
+
+    return await db_sibh.any("UPDATE station_prefixes SET transmission_status=$1,date_last_measurement=$2, id_last_measurement=$3, date_last_transmission=$4 WHERE id IN ($5:list) RETURNING id, prefix, updated_at",[
+        transmission_status,
+        _.last(dates),
+        _.last(ids),
+        _.last(transmissions),
+        _.uniq(station_prefix_ids)
+    ]);
+}
+
+/**
+ * Function to update syncronized_at field in Webservice Database
+ * @param {*} prefix 
+ * @param {*} inserted_measurements 
+ */
+async function updateMeasurementsToSyncronized(prefix, inserted_measurements){
+    //Collect results from bulk insert of measurements
+    let dates = _.map(inserted_measurements, function(e){ return moment(e.date_hour).format('YYYY-MM-DD HH:mm') });
+    
+    return await db_source.any('UPDATE measurements SET syncronized_at=$1 WHERE prefix=$2 and to_char(datetime, \'YYYY-MM-DD HH24:MI\') IN ($3:list) RETURNING prefix, datetime, syncronized_at', 
+    [                
+        moment().add(3,'hours').format('YYYY-MM-DD HH:mm:ss'),
+        prefix,
+        dates
+    ]);
+}
+
+/**
+ * Function to get measurements from Webservice Database
+ * @param {*} station_owner 
+ * @param {*} prefix 
+ * @param {*} date_range 
+ * @param {*} not_syncronized 
+ * @param {*} limit 
+ * @returns 
+ */
+async function getMeasurements(station_owner, prefix, date_range, not_syncronized = true, limit=10000, offset=10000, order_by=" datetime desc"){
+    let query = "SELECT * FROM measurements ";
+    let conds = [];
+
+    if(station_owner){
+        conds.push(" station_owner = '"+station_owner+"'");
+    }
+
+    if(prefix){
+        conds.push(" prefix = '"+prefix+"'");
+    }
+
+    if(date_range){
+        conds.push(" datetime between '"+date_range[0].format("YYYY-MM-DD HH:mm")+"' and '"+date_range[1].format("YYYY-MM-DD HH:mm")+"' ");
+    }
+
+    if(not_syncronized){
+        conds.push(" syncronized_at is null ");
+    }
+
+    if(conds.length > 0){
+        query += "WHERE "+conds.join(" and ");
+    }
+
+    if(order_by){
+        query += order_by;
+    }
+
+    if(limit){
+        query += " limit "+limit;
+
+        if(offset){
+            query += " offset "+offset;
         }
+    }
+    
+    console.log(query);
 
-    })
+    return await db_source.any(query);
+}
+
+/**
+ * Function to calculate Difference Time in Minutes
+ * This is duration moment object to get results
+ * 
+ * asSeconds
+ * asMinutes
+ * asDays
+ * asMonths
+ * asyears
+ * 
+ * @param {*} startDate 
+ * @param {*} endDate 
+ * @returns 
+ */
+function calculateTimeDifference(startDate, endDate, unit) {
+    return moment.duration(endDate.diff(startDate));
+}
+
+function loadKeyCurves(){
+    axios({
+        method: "get",
+        url: (process.env.SIBH_API_ENDPOINT+"key_curves"),
+        config:{
+            headers: {
+                user_email: "diego.monteiro@daee.sp.gov.br",
+                user_token: "jy98WB2XzqndZUtyxkvr"
+            }
+        }
+    }).then(res => {
+        
+        //Group Key Curves By Prefix
+        keys_grouped = _.groupBy(res.data, 'station_id');
+
+        console.log(keys_grouped);
+
+    }).catch(error => {
+        console.error(error);
+    });
 }
 
 /**
@@ -522,56 +623,174 @@ function loadStationPrefixes(){
         url: (process.env.SIBH_API_ENDPOINT+"station_prefixes")
     }).then(res => {
         
-        station_prefixes = res.data;
+        let station_prefixes = res.data;
 
-        cemaden_stations = _.filter(station_prefixes, function(o){
+        let cemaden_stations = _.filter(station_prefixes, function(o){
             return o.station_owner.name == 'CEMADEN'
         });
 
-        saisp_stations = _.filter(station_prefixes, function(o){
+        let saisp_stations = _.filter(station_prefixes, function(o){
             return o.station_owner.name == 'SAISP'
         });
 
-        iac_stations = _.filter(station_prefixes, function(o){
+        let iac_stations = _.filter(station_prefixes, function(o){
             return o.station_owner.name == 'IAC'
         });
 
-        daee_stations = _.filter(station_prefixes, function(o){
+        let daee_stations = _.filter(station_prefixes, function(o){
             return o.station_owner.name == 'DAEE'
         });
 
-        ana_stations = _.filter(station_prefixes, function(o){
+        let ana_stations = _.filter(station_prefixes, function(o){
             let owner = o.station_owner.name;
             return (owner != 'CEMADEN' && owner != 'DAEE' && owner != 'IAC' && owner != 'SAISP')
         });
 
-        fs.writeFile('./stations/daee_stations.json', JSON.stringify(daee_stations, null, 2), (err) => {
-            if (err) throw err;
-            console.log('DAEE Stations written to file');
+        const vals_stations_cemaden = [];
+        const vals_stations_saisp   = [];
+        const vals_stations_daee    = [];
+        const vals_stations_iac     = [];
+        const vals_stations_ana     = [];
+
+        //Insert Camaden Stations
+        _.each(cemaden_stations, function(station,key){
+            vals_stations_cemaden.push({
+                prefix: station.prefix,
+                prefix_alt: station.prefix,
+                latitude: station.station.latitude,
+                longitude: station.station.longitude,
+                altitude: station.altitude,
+                name: station.station.name,
+                station_owner: station.station_owner.name,
+                station_operator: station.station_owner.name,
+                station_type: station.station_type.name,
+                city_name: station.station.city.name,
+                city_cod: station.station.city.cod_ibge,
+                ugrhi_name: station.station.ugrhi.name,
+                ugrhi_cod: station.station.ugrhi.cod,
+                subugrhi_name: station.station.subugrhi.name,
+                subugrhi_cod: station.station.subugrhi.cod,
+                station_id: station.station.id,
+                station_prefix_id: station.id,
+                not_located: false,
+                without_data: false,
+                transmission_gap: station.transmission_gap,
+                measurement_gap: station.measurement_gap
+            });
         });
 
-        fs.writeFile('./stations/cemaden_stations.json', JSON.stringify(cemaden_stations, null, 2), (err) => {
-            if (err) throw err;
-            console.log('CEMADEN Stations written to file');
+        _.each(saisp_stations, function(station,key){
+            vals_stations_saisp.push({
+                prefix: station.prefix,
+                prefix_alt: station.alt_prefix,
+                latitude: station.station.latitude,
+                longitude: station.station.longitude,
+                altitude: station.altitude,
+                name: station.station.name,
+                station_owner: station.station_owner.name,
+                station_operator: station.station_owner.name,
+                station_type: station.station_type.name,
+                city_name: station.station.city.name,
+                city_cod: station.station.city.cod_ibge,
+                ugrhi_name: station.station.ugrhi.name,
+                ugrhi_cod: station.station.ugrhi.cod,
+                subugrhi_name: station.station.subugrhi.name,
+                subugrhi_cod: station.station.subugrhi.cod,
+                station_id: station.station.id,
+                station_prefix_id: station.id,
+                not_located: false,
+                without_data: false,
+                transmission_gap: station.transmission_gap,
+                measurement_gap: station.measurement_gap
+            });
         });
 
-        fs.writeFile('./stations/saisp_stations.json', JSON.stringify(saisp_stations, null, 2), (err) => {
-            if (err) throw err;
-            console.log('SAISP Stations written to file');
+        _.each(iac_stations, function(station,key){
+            vals_stations_iac.push({
+                prefix: station.prefix,
+                prefix_alt: station.station.city.cod_ibge+"-"+station.station.name,
+                latitude: station.station.latitude,
+                longitude: station.station.longitude,
+                altitude: station.altitude,
+                name: station.station.name,
+                station_owner: station.station_owner.name,
+                station_operator: station.station_owner.name,
+                station_type: station.station_type.name,
+                city_name: station.station.city.name,
+                city_cod: station.station.city.cod_ibge,
+                ugrhi_name: station.station.ugrhi.name,
+                ugrhi_cod: station.station.ugrhi.cod,
+                subugrhi_name: station.station.subugrhi.name,
+                subugrhi_cod: station.station.subugrhi.cod,
+                station_id: station.station.id,
+                station_prefix_id: station.id,
+                not_located: false,
+                without_data: false,
+                transmission_gap: station.transmission_gap,
+                measurement_gap: station.measurement_gap
+            });
         });
 
-        fs.writeFile('./stations/iac_stations.json', JSON.stringify(iac_stations, null, 2), (err) => {
-            if (err) throw err;
-            console.log('IAC Stations written to file');
+        _.each(daee_stations, function(station,key){
+            vals_stations_daee.push({
+                prefix: station.prefix,
+                prefix_alt: station.alt_prefix,
+                latitude: station.station.latitude,
+                longitude: station.station.longitude,
+                altitude: station.altitude,
+                name: station.station.name,
+                station_owner: station.station_owner.name,
+                station_operator: station.station_owner.name,
+                station_type: station.station_type.name,
+                city_name: station.station.city.name,
+                city_cod: station.station.city.cod_ibge,
+                ugrhi_name: station.station.ugrhi.name,
+                ugrhi_cod: station.station.ugrhi.cod,
+                subugrhi_name: station.station.subugrhi.name,
+                subugrhi_cod: station.station.subugrhi.cod,
+                station_id: station.station.id,
+                station_prefix_id: station.id,
+                not_located: false,
+                without_data: false,
+                transmission_gap: station.transmission_gap,
+                measurement_gap: station.measurement_gap
+            });
         });
 
-        fs.writeFile('./stations/ana_stations.json', JSON.stringify(ana_stations, null, 2), (err) => {
-            if (err) throw err;
-            console.log('ANA Stations written to file');
+        _.each(ana_stations, function(station,key){
+            vals_stations_ana.push({
+                prefix: station.prefix,
+                prefix_alt: station.alt_prefix,
+                latitude: station.station.latitude,
+                longitude: station.station.longitude,
+                altitude: station.altitude,
+                name: station.station.name,
+                station_owner: 'ANA',
+                station_operator: station.station_owner.name,
+                station_type: station.station_type.name,
+                city_name: station.station.city.name,
+                city_cod: station.station.city.cod_ibge,
+                ugrhi_name: station.station.ugrhi.name,
+                ugrhi_cod: station.station.ugrhi.cod,
+                subugrhi_name: station.station.subugrhi.name,
+                subugrhi_cod: station.station.subugrhi.cod,
+                station_id: station.station.id,
+                station_prefix_id: station.id,
+                not_located: false,
+                without_data: false,
+                transmission_gap: station.transmission_gap,
+                measurement_gap: station.measurement_gap
+            });
         });
+
+       
+        const q_stations = pgp.helpers.insert([].concat(vals_stations_ana, vals_stations_cemaden, vals_stations_daee, vals_stations_iac, vals_stations_saisp),cs_stations)+ " ON CONFLICT (prefix, station_type, station_owner) DO UPDATE SET name = stations.name, latitude = stations.latitude, longitude = stations.longitude, altitude = stations.altitude, updated_at = NOW() RETURNING prefix, updated_at";     
+        db_source.any(q_stations ).then(data => {
+            console.log("Stations Inserted: ", data.length);
+        });
+        
 
     }).catch(error => {
         console.error(error);
     });
 }
-
