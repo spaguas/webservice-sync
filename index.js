@@ -141,15 +141,14 @@ let endDt   = (process.env.RANGE_COLLECT_DATE_END   != "") ? moment(process.env.
 
 let dateRange = [startDt,endDt];
 
+loadStationPrefixes();
 //Execute 1 hours
 var job_stations_sync = new CronJob(
     process.env.CRONJOB_SYNC_STATIONS,
     function(){   
         loadStationPrefixes();
     },
-    function(e){
-        console.log("Job Sync Stations Completed")
-    },
+    null,
     true,
     'America/Sao_Paulo'
 );
@@ -344,5 +343,184 @@ function getAllStations(){
         stations_query += 'LEFT JOIN station_owners ON (station_prefixes.station_owner_id = station_owners.id)'
         const stations = await tk.any(stations_query)
         return {stations: stations};
+    })
+}
+
+
+/**
+ * Function to load Station Prefixes from SIBH Database
+ * To get ID linked with prefixes (Plu,Flu,Piez etc..)
+ */
+function loadStationPrefixes(){
+    axios({
+        method: "get",
+        url: (process.env.SIBH_API_ENDPOINT+"station_prefixes")
+    }).then(res => {
+        
+        station_prefixes = res.data;
+
+        cemaden_stations = _.filter(station_prefixes, function(o){
+            return o.station_owner.name == 'CEMADEN'
+        });
+
+        saisp_stations = _.filter(station_prefixes, function(o){
+            return o.station_owner.name == 'SAISP'
+        });
+
+        iac_stations = _.filter(station_prefixes, function(o){
+            return o.station_owner.name == 'IAC'
+        });
+
+        daee_stations = _.filter(station_prefixes, function(o){
+            return o.station_owner.name == 'DAEE'
+        });
+
+        ana_stations = _.filter(station_prefixes, function(o){
+            let owner = o.station_owner.name;
+            return (owner != 'CEMADEN' && owner != 'DAEE' && owner != 'IAC' && owner != 'SAISP')
+        });
+
+        const vals_stations_cemaden = [];
+        const vals_stations_saisp   = [];
+        const vals_stations_daee    = [];
+        const vals_stations_iac     = [];
+        const vals_stations_ana     = [];
+
+        //Insert Camaden Stations
+        _.each(cemaden_stations, function(station,key){
+            vals_stations_cemaden.push({
+                prefix: station.prefix,
+                prefix_alt: station.prefix,
+                latitude: station.station.latitude,
+                longitude: station.station.longitude,
+                altitude: station.altitude,
+                name: station.station.name,
+                station_owner: station.station_owner.name,
+                station_operator: station.station_owner.name,
+                station_type: station.station_type.name,
+                city_name: station.station.city.name,
+                city_cod: station.station.city.cod_ibge,
+                ugrhi_name: station.station.ugrhi.name,
+                ugrhi_cod: station.station.ugrhi.cod,
+                subugrhi_name: station.station.subugrhi.name,
+                subugrhi_cod: station.station.subugrhi.cod,
+                station_id: station.station.id,
+                station_prefix_id: station.id,
+                not_located: false,
+                without_data: false,
+                measurement_gap: station.measurement_gap,
+                transmission_gap: station.transmission_gap
+            });
+        });
+
+        _.each(saisp_stations, function(station,key){
+            vals_stations_saisp.push({
+                prefix: station.prefix,
+                prefix_alt: station.alt_prefix,
+                latitude: station.station.latitude,
+                longitude: station.station.longitude,
+                altitude: station.altitude,
+                name: station.station.name,
+                station_owner: station.station_owner.name,
+                station_operator: station.station_owner.name,
+                station_type: station.station_type.name,
+                city_name: station.station.city.name,
+                city_cod: station.station.city.cod_ibge,
+                ugrhi_name: station.station.ugrhi.name,
+                ugrhi_cod: station.station.ugrhi.cod,
+                subugrhi_name: station.station.subugrhi.name,
+                subugrhi_cod: station.station.subugrhi.cod,
+                station_id: station.station.id,
+                station_prefix_id: station.id,
+                not_located: false,
+                without_data: false,
+                measurement_gap: station.measurement_gap,
+                transmission_gap: station.transmission_gap
+            });
+        });
+
+        _.each(iac_stations, function(station,key){
+            vals_stations_iac.push({
+                prefix: station.prefix,
+                prefix_alt: station.station.city.cod_ibge+"-"+station.station.name,
+                latitude: station.station.latitude,
+                longitude: station.station.longitude,
+                altitude: station.altitude,
+                name: station.station.name,
+                station_owner: station.station_owner.name,
+                station_operator: station.station_owner.name,
+                station_type: station.station_type.name,
+                city_name: station.station.city.name,
+                city_cod: station.station.city.cod_ibge,
+                ugrhi_name: station.station.ugrhi.name,
+                ugrhi_cod: station.station.ugrhi.cod,
+                subugrhi_name: station.station.subugrhi.name,
+                subugrhi_cod: station.station.subugrhi.cod,
+                station_id: station.station.id,
+                station_prefix_id: station.id,
+                not_located: false,
+                without_data: false,
+                measurement_gap: station.measurement_gap,
+                transmission_gap: station.transmission_gap
+            });
+        });
+
+        _.each(daee_stations, function(station,key){
+            vals_stations_daee.push({
+                prefix: station.prefix,
+                prefix_alt: station.alt_prefix,
+                latitude: station.station.latitude,
+                longitude: station.station.longitude,
+                altitude: station.altitude,
+                name: station.station.name,
+                station_owner: station.station_owner.name,
+                station_operator: station.station_owner.name,
+                station_type: station.station_type.name,
+                city_name: station.station.city.name,
+                city_cod: station.station.city.cod_ibge,
+                ugrhi_name: station.station.ugrhi.name,
+                ugrhi_cod: station.station.ugrhi.cod,
+                subugrhi_name: station.station.subugrhi.name,
+                subugrhi_cod: station.station.subugrhi.cod,
+                station_id: station.station.id,
+                station_prefix_id: station.id,
+                not_located: false,
+                without_data: false,
+                measurement_gap: station.measurement_gap,
+                transmission_gap: station.transmission_gap
+            });
+        });
+
+        _.each(ana_stations, function(station,key){
+            vals_stations_ana.push({
+                prefix: station.prefix,
+                prefix_alt: station.alt_prefix,
+                latitude: station.station.latitude,
+                longitude: station.station.longitude,
+                altitude: station.altitude,
+                name: station.station.name,
+                station_owner: station.station_owner.name,
+                station_operator: station.station_owner.name,
+                station_type: station.station_type.name,
+                city_name: station.station.city.name,
+                city_cod: station.station.city.cod_ibge,
+                ugrhi_name: station.station.ugrhi.name,
+                ugrhi_cod: station.station.ugrhi.cod,
+                subugrhi_name: station.station.subugrhi.name,
+                subugrhi_cod: station.station.subugrhi.cod,
+                station_id: station.station.id,
+                station_prefix_id: station.id,
+                measurement_gap: station.measurement_gap,
+                transmission_gap: station.transmission_gap,
+                not_located: false,
+                without_data: false
+            });
+        });
+
+        const q_stations = pgp.helpers.insert([].concat(vals_stations_ana, vals_stations_cemaden, vals_stations_daee, vals_stations_iac, vals_stations_saisp),cs_stations)+ " ON CONFLICT (prefix, station_type, station_owner) DO UPDATE SET updated_at = NOW() RETURNING prefix, updated_at";     
+        db_source.query(q_stations);
+
+    }).catch(error => {
+        console.error("Erro na execução");
     })
 }
