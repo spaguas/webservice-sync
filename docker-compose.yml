@@ -8,8 +8,8 @@ services:
     command: node .
     restart: unless-stopped
     mem_limit: "1g"
-    mem_reservation: "512m"
-    cpus: "1"
+    mem_reservation: "1g"
+    cpus: "2"
     cpuset: "2"
     logging:
       driver: "json-file"
