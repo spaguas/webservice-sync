@@ -141,17 +141,6 @@ let endDt   = (process.env.RANGE_COLLECT_DATE_END   != "") ? moment(process.env.
 
 let dateRange = [startDt,endDt];
 
-loadStationPrefixes();
-//Execute 1 hours
-var job_stations_sync = new CronJob(
-    process.env.CRONJOB_SYNC_STATIONS,
-    function(){   
-        loadStationPrefixes();
-    },
-    null,
-    true,
-    'America/Sao_Paulo'
-);
 
 //Execute 1 hours
 var job_measurements_24hs_sync = new CronJob(
@@ -277,6 +266,11 @@ var job_measurements_24hs_sync = new CronJob(
     'America/Sao_Paulo'
 );
 
+/**
+ * Function to get measurements
+ * @param {*} hours 
+ * @returns 
+ */
 function getMeasurementsByHours(hours){
     return db_source.task(async tk => {
         const measurements = await tk.any('SELECT * FROM measurements WHERE datetime >= NOW() - interval \'$1 hours\'', [hours])
