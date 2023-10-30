@@ -9,9 +9,14 @@
         "Pluviometric",
         "SAISP",
         "Sibh",
+        "subugrhi",
+        "subugrhis",
         "syncronize",
         "syncronized",
+        "ugrhi",
+        "ugrhis",
         "vals",
         "Withot"
-    ]
+    ],
+    "DockerRun.DisableDockerrc": true
 }
