@@ -141,16 +141,19 @@ let endDt   = (process.env.RANGE_COLLECT_DATE_END   != "") ? moment(process.env.
 
 let dateRange = [startDt,endDt];
 
+
+
+
 var job_update_status = new CronJob(
-    process.env.CRONJOB_RETRO_SYNC,
+    process.env.CRONJOB_UPDATE_STATION_STATUS,
     async function(){
-        db_sibh.task(async tk => {
-            await tk.none('UPDATE station_prefixes SET transmission_status = 1 WHERE date_last_transmission > NOW() - interval \'48 hours\'');
-        })
+        updateTransmissionStatus().then(res => {
+            console.log("Stations Lazy: ",res.noks.length," - Oks: ", res.oks.length);
+        });
     },
     null,
     true,
-    'America/Sao_Paulo')
+    'America/Sao_Paulo');
 
 //Execute 1 hours
 var job_measurements_per_hours_sync = new CronJob(
@@ -235,7 +238,7 @@ var job_measurements_per_hours_sync = new CronJob(
                     if(!_.isEmpty(station_plu) && _.isEmpty(station_flu)){
                         if(vals_plu_sibh.length > 0){ 
                             //sync_tasks.push(insertBulkMeasurements(vals_plu_sibh));
-                            insertBulkMeasurements(station_plu, vals_plu_sibh, 10).then(results => {
+                            insertBulkMeasurements(station_plu, vals_plu_sibh, 3).then(results => {
                                                                 
                                 //console.log("Results["+prefix+"]: ", results);
                                 db_source.task(async tk => {
@@ -252,7 +255,7 @@ var job_measurements_per_hours_sync = new CronJob(
                     if(!_.isEmpty(station_flu) && _.isEmpty(station_plu)){
                         if(vals_flu_sibh.length > 0){
                             //sync_tasks.push(insertBulkMeasurements(vals_flu_sibh));
-                            insertBulkMeasurements(station_flu, vals_flu_sibh, 10).then(results => {
+                            insertBulkMeasurements(station_flu, vals_flu_sibh, 3).then(results => {
                                 //console.log(station_flu.prefix," => Measurements Inserted: ", results.inserts.length+"/"+vals_flu_sibh.length);
         
                                 db_source.task(async tk => {
@@ -269,7 +272,7 @@ var job_measurements_per_hours_sync = new CronJob(
                     //Posto duplo
                     if(!_.isEmpty(station_flu) && !_.isEmpty(station_plu)){
                         if(vals_flu_sibh.length > 0){
-                            insertBulkMeasurements(station_flu, vals_flu_sibh, 10).then(results => {
+                            insertBulkMeasurements(station_flu, vals_flu_sibh, 3).then(results => {
                                 //console.log(station_flu.prefix," => Measurements Inserted: ", results.inserts.length+"/"+vals_flu_sibh.length);
         
                                 db_source.task(async tk => {
@@ -284,7 +287,7 @@ var job_measurements_per_hours_sync = new CronJob(
 
                         if(vals_plu_sibh.length > 0){ 
                             //sync_tasks.push(insertBulkMeasurements(vals_plu_sibh));
-                            insertBulkMeasurements(station_plu, vals_plu_sibh, 10).then(results => {
+                            insertBulkMeasurements(station_plu, vals_plu_sibh, 3).then(results => {
                                                                 
                                 //console.log("Results["+prefix+"]: ", results);
                                 db_source.task(async tk => {
@@ -321,6 +324,58 @@ async function getMeasurementsByHours(hours){
     })   
 }
 
+async function updateTransmissionStatus(){
+    return db_sibh.task(async tk => {
+        const stations_status = await tk.any('SELECT sp.id, sp.date_last_transmission, sp.transmission_gap, age(now() at time zone \'utc\', sp.date_last_transmission) as diff from station_prefixes as sp where date_last_transmission is not null and transmission_gap is not null');
+
+        let stations_prefixes_ids_ok = [];
+        let stations_prefixes_ids_nok = [];
+
+        _.each(stations_status, function(station_status){
+            let diff = _.pickBy(station_status.diff, value => value !== null);
+            let diff_keys = Object.keys(diff);
+
+            let diff_minutes = 0;
+            _.each(diff_keys, function(key){
+                if(key == "years"){
+                    diff_minutes += (diff.years * 525600);
+                }
+                else if(key == "months"){
+                    diff_minutes += (diff.months * 43800);
+                }
+                else if(key == "days"){
+                    diff_minutes += (diff.days * 1440);
+                }
+                else if(key == "hours"){
+                    diff_minutes += (diff.hours * 60);
+                }
+                else if(key == "minutes"){
+                    diff_minutes += (diff.minutes)
+                }
+                else if(key == "seconds"){
+                    diff_minutes += (diff.seconds/60);
+                }
+            })
+
+            is_lazy = diff_minutes > (station_status.transmission_gap * 3); //300% of tolerance
+
+            if(is_lazy){
+                stations_prefixes_ids_nok.push(station_status.id);
+            }
+            else{
+                stations_prefixes_ids_ok.push(station_status.id);
+            }
+
+            console.log("Station Id: ", station_status.id, " - Date: ", station_status.date_last_transmission," - Diff: ", diff_minutes," - Atrasado?: ", is_lazy);
+        });
+
+        const oks  = await tk.any("UPDATE station_prefixes SET transmission_status = 0 WHERE id IN ($1:list) RETURNING id",[stations_prefixes_ids_ok]);
+        const noks = await tk.any("UPDATE station_prefixes SET transmission_status = 1 WHERE id IN ($1:list) RETURNING id",[stations_prefixes_ids_nok]);
+
+        return {statuses: stations_status, oks: oks, noks: noks}
+    });
+}
+
 /**
  * Method to bulk insert measurement into SIBH Database
  * @param {*} measurements 
@@ -340,8 +395,10 @@ function insertBulkMeasurements(station, measurements, tolerance){
         
         //console.log("Results[",prefix,"]: ",_.max(insert_dates));
         let diffInMinutes = calculateTimeDifference(moment.utc(_.max(insert_dates)), moment().utc()).asMinutes();
+                
+        let transmission_status = (dates.length > 0 && diffInMinutes <= (station.transmission_gap * tolerance)) ? 0 : 1 ; //100% plus in time to gap transmissions
 
-        let transmission_status = (diffInMinutes >= 0 && diffInMinutes <= (station.transmission_gap * tolerance)) ? 0 : 1 ; //100% plus in time to gap transmissions
+        console.log("Diff Minutes: ", diffInMinutes," - Transmission Gap: ", (station.transmission_gap * tolerance)," - Status: ", transmission_status);
 
         await tk.none("UPDATE station_prefixes SET transmission_status=$1,date_last_measurement=$2, id_last_measurement=$3, date_last_transmission=$4 WHERE id = $5",[
             transmission_status,
