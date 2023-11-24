@@ -159,7 +159,7 @@ var job_update_status = new CronJob(
 var job_measurements_per_hours_sync = new CronJob(
     process.env.CRONJOB_DAEE,
     async function(){   
-        getMeasurementsByHours(120).then(mds => {
+        getMeasurementsByHours(500).then(mds => {
             console.log("Measurements: ", _.size(mds.measurements));
             let mds_grouped = _.groupBy(mds.measurements, function(o){ return o.prefix });
         
@@ -245,7 +245,7 @@ var job_measurements_per_hours_sync = new CronJob(
                                     let updateds = await tk.any('UPDATE measurements SET syncronized_at = now() at time zone \'utc\' WHERE level is null AND prefix = $1 AND to_char(datetime, \'YYYY-MM-DD HH24:MI\') IN ($2:list) RETURNING prefix,datetime,syncronized_at',[prefix,results.inserts]);
                                     return updateds;
                                 }).then(up_res => {
-                                    //console.log("Measurements Syncronized: ", up_res.length);
+                                    console.log("Measurements Syncronized: ", up_res);
                                     console.log(station_plu.prefix," / ",station_plu.alt_prefix," => Measurements Inserted: ", up_res.length+"/"+vals_plu_sibh.length);
                                 });
                             });
@@ -279,7 +279,7 @@ var job_measurements_per_hours_sync = new CronJob(
                                     let updateds = await tk.any('UPDATE measurements SET syncronized_at = now() at time zone \'utc\' WHERE prefix = $1 AND to_char(datetime, \'YYYY-MM-DD HH24:MI\') IN ($2:list) RETURNING prefix,datetime,syncronized_at',[prefix,results.inserts]);
                                     return updateds;
                                 }).then(up_res => {
-                                    //console.log("Measurements Syncronized: ", up_res.length);
+                                    console.log("Measurements Syncronized: ", up_res.length);
                                     console.log(station_flu.prefix,"/",station_flu.alt_prefix," => Measurements Inserted: ", results.inserts.length+"/"+vals_flu_sibh.length);
                                 });
                             });
@@ -366,7 +366,7 @@ async function updateTransmissionStatus(){
                 stations_prefixes_ids_ok.push(station_status.id);
             }
 
-            console.log("Station Id: ", station_status.id, " - Date: ", station_status.date_last_transmission," - Diff: ", diff_minutes," - Atrasado?: ", is_lazy);
+            console.log("Station Id: ", station_status.id, " - Date: ", station_status.date_last_transmission," - Diff: ", diff_minutes," - Transmissão OK?: ", !is_lazy);
         });
 
         const oks  = await tk.any("UPDATE station_prefixes SET transmission_status = 0 WHERE id IN ($1:list) RETURNING id",[stations_prefixes_ids_ok]);
