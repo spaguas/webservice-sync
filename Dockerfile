@@ -8,4 +8,4 @@ FROM base as production
 ENV NODE_ENV=production
 RUN npm ci
 COPY . /
-CMD ["node", "index.js"]
+CMD ["node", "--max-old-space-size=4094", "index.js"]
