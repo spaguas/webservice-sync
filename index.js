@@ -159,7 +159,7 @@ var job_update_status = new CronJob(
 var job_measurements_per_hours_sync = new CronJob(
     process.env.CRONJOB_DAEE,
     async function(){   
-        getMeasurementsByHours(500).then(mds => {
+        getMeasurementsByHours(250).then(mds => {
             console.log("Measurements: ", _.size(mds.measurements));
             let mds_grouped = _.groupBy(mds.measurements, function(o){ return o.prefix });
         
@@ -436,5 +436,4 @@ async function getAllStations(){
         
         let stations = await db_sibh.any(stations_query);
         return stations;
-        
 }
