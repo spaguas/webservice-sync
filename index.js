@@ -101,7 +101,7 @@ const pgp = require('pg-promise')({
 
         if (e.ctx) {
             // occurred inside a task or transaction
-            console.error("ERROR TASK: ", e.ctx);
+            console.error("ERROR TASK: ", e);
         }
     }
 });
@@ -159,7 +159,7 @@ var job_update_status = new CronJob(
 var job_measurements_per_hours_sync = new CronJob(
     process.env.CRONJOB_DAEE,
     async function(){   
-        getMeasurementsByHours(250).then(mds => {
+        getMeasurementsByHours(120).then(mds => {
             console.log("Measurements: ", _.size(mds.measurements));
             let mds_grouped = _.groupBy(mds.measurements, function(o){ return o.prefix });
         
@@ -173,10 +173,19 @@ var job_measurements_per_hours_sync = new CronJob(
                 
                 _.forEach(mds_grouped, function(measurements, prefix){
                     
-                    //console.log("Stations:", stations)
-                    //console.log("Get First Item: ", _.filter(list_stations.stations, function(o){ return (o.prefix_alt != null) ? o.prefix_alt == prefix : o.prefix == prefix }));
-                    let station_plu = _.first(_.filter(stations, function(o){ return (o.prefix == prefix || o.alt_prefix == prefix) && o.station_type_id == '2'}))
                     let station_flu = _.first(_.filter(stations, function(o){ return (o.prefix == prefix || o.alt_prefix == prefix) && o.station_type_id == '1'}))
+                    let station_plu = _.first(_.filter(stations, function(o){ return (o.prefix == prefix || o.alt_prefix == prefix) && o.station_type_id == '2'}))                    
+                    console.log("Station: ", station_flu);
+
+                    //Check if have association if pluviometric station
+                    if(!_.isEmpty(station_flu) && station_flu.station_id != null){
+                        station_plu = _.first(_.filter(stations, function(o){ return (o.station_id == station_flu.station_id) && o.station_type_id == '2'}));
+                    }
+
+                    //Check if have association if fluviometric station
+                    if(!_.isEmpty(station_plu) && station_plu.station_id != null){
+                        station_flu = _.first(_.filter(stations, function(o){ return (o.station_id == station_plu.station_id) && o.station_type_id == '1'}))
+                    }
 
                     let vals_flu_sibh = [];
                     let vals_plu_sibh = [];
@@ -241,13 +250,15 @@ var job_measurements_per_hours_sync = new CronJob(
                             insertBulkMeasurements(station_plu, vals_plu_sibh, 3).then(results => {
                                                                 
                                 //console.log("Results["+prefix+"]: ", results);
-                                db_source.task(async tk => {
-                                    let updateds = await tk.any('UPDATE measurements SET syncronized_at = now() at time zone \'utc\' WHERE level is null AND prefix = $1 AND to_char(datetime, \'YYYY-MM-DD HH24:MI\') IN ($2:list) RETURNING prefix,datetime,syncronized_at',[prefix,results.inserts]);
-                                    return updateds;
-                                }).then(up_res => {
-                                    console.log("Measurements Syncronized: ", up_res);
-                                    console.log(station_plu.prefix," / ",station_plu.alt_prefix," => Measurements Inserted: ", up_res.length+"/"+vals_plu_sibh.length);
-                                });
+                                if(results.length > 0){
+                                    db_source.task(async tk => {
+                                        let updateds = await tk.any('UPDATE measurements SET syncronized_at = now() at time zone \'utc\' WHERE level is null AND prefix = $1 AND to_char(datetime, \'YYYY-MM-DD HH24:MI\') IN ($2:list) RETURNING prefix,datetime,syncronized_at',[prefix,results.inserts]);
+                                        return updateds;
+                                    }).then(up_res => {
+                                        console.log("Measurements Syncronized: ", up_res);
+                                        console.log(station_plu.prefix," / ",station_plu.alt_prefix," => Measurements Inserted: ", up_res.length+"/"+vals_plu_sibh.length);
+                                    });
+                                }                                
                             });
                         }
                     }
@@ -257,14 +268,15 @@ var job_measurements_per_hours_sync = new CronJob(
                             //sync_tasks.push(insertBulkMeasurements(vals_flu_sibh));
                             insertBulkMeasurements(station_flu, vals_flu_sibh, 3).then(results => {
                                 //console.log(station_flu.prefix," => Measurements Inserted: ", results.inserts.length+"/"+vals_flu_sibh.length);
-        
-                                db_source.task(async tk => {
-                                    let updateds = await tk.any('UPDATE measurements SET syncronized_at = now() at time zone \'utc\' WHERE rainfall is null AND prefix = $1 AND to_char(datetime, \'YYYY-MM-DD HH24:MI\') IN ($2:list) RETURNING prefix,datetime,syncronized_at',[prefix,results.inserts]);
-                                    return updateds;
-                                }).then(up_res => {
-                                    //console.log("Measurements Syncronized: ", up_res.length);
-                                    console.log(station_flu.prefix,"/",station_flu.alt_prefix," => Measurements Inserted: ", results.inserts.length+"/"+vals_flu_sibh.length);
-                                });
+                                if(results.length > 0){
+                                    db_source.task(async tk => {
+                                        let updateds = await tk.any('UPDATE measurements SET syncronized_at = now() at time zone \'utc\' WHERE rainfall is null AND prefix = $1 AND to_char(datetime, \'YYYY-MM-DD HH24:MI\') IN ($2:list) RETURNING prefix,datetime,syncronized_at',[prefix,results.inserts]);
+                                        return updateds;
+                                    }).then(up_res => {
+                                        //console.log("Measurements Syncronized: ", up_res.length);
+                                        console.log(station_flu.prefix,"/",station_flu.alt_prefix," => Measurements Inserted: ", results.inserts.length+"/"+vals_flu_sibh.length);
+                                    });
+                                }
                             });
                         }
                     }
@@ -274,29 +286,31 @@ var job_measurements_per_hours_sync = new CronJob(
                         if(vals_flu_sibh.length > 0){
                             insertBulkMeasurements(station_flu, vals_flu_sibh, 3).then(results => {
                                 //console.log(station_flu.prefix," => Measurements Inserted: ", results.inserts.length+"/"+vals_flu_sibh.length);
-        
-                                db_source.task(async tk => {
-                                    let updateds = await tk.any('UPDATE measurements SET syncronized_at = now() at time zone \'utc\' WHERE prefix = $1 AND to_char(datetime, \'YYYY-MM-DD HH24:MI\') IN ($2:list) RETURNING prefix,datetime,syncronized_at',[prefix,results.inserts]);
-                                    return updateds;
-                                }).then(up_res => {
-                                    console.log("Measurements Syncronized: ", up_res.length);
-                                    console.log(station_flu.prefix,"/",station_flu.alt_prefix," => Measurements Inserted: ", results.inserts.length+"/"+vals_flu_sibh.length);
-                                });
+                                if(results.length > 0){
+                                    db_source.task(async tk => {
+                                        let updateds = await tk.any('UPDATE measurements SET syncronized_at = now() at time zone \'utc\' WHERE prefix = $1 AND to_char(datetime, \'YYYY-MM-DD HH24:MI\') IN ($2:list) RETURNING prefix,datetime,syncronized_at',[prefix,results.inserts]);
+                                        return updateds;
+                                    }).then(up_res => {
+                                        console.log("Measurements Syncronized: ", up_res.length);
+                                        console.log(station_flu.prefix,"/",station_flu.alt_prefix," => Measurements Inserted: ", results.inserts.length+"/"+vals_flu_sibh.length);
+                                    });
+                                }
                             });
                         }
 
                         if(vals_plu_sibh.length > 0){ 
                             //sync_tasks.push(insertBulkMeasurements(vals_plu_sibh));
                             insertBulkMeasurements(station_plu, vals_plu_sibh, 3).then(results => {
-                                                                
-                                //console.log("Results["+prefix+"]: ", results);
-                                db_source.task(async tk => {
-                                    let updateds = await tk.any('UPDATE measurements SET syncronized_at = now() at time zone \'utc\' WHERE prefix = $1 AND to_char(datetime, \'YYYY-MM-DD HH24:MI\') IN ($2:list) RETURNING prefix,datetime,syncronized_at',[prefix,results.inserts]);
-                                    return updateds;
-                                }).then(up_res => {
-                                    //console.log("Measurements Syncronized: ", up_res.length);
-                                    console.log(station_plu.prefix," / ",station_plu.alt_prefix," => Measurements Inserted: ", up_res.length+"/"+vals_plu_sibh.length);
-                                });
+                                if(results.length > 0){                             
+                                    //console.log("Results["+prefix+"]: ", results);
+                                    db_source.task(async tk => {
+                                        let updateds = await tk.any('UPDATE measurements SET syncronized_at = now() at time zone \'utc\' WHERE prefix = $1 AND to_char(datetime, \'YYYY-MM-DD HH24:MI\') IN ($2:list) RETURNING prefix,datetime,syncronized_at',[prefix,results.inserts]);
+                                        return updateds;
+                                    }).then(up_res => {
+                                        //console.log("Measurements Syncronized: ", up_res.length);
+                                        console.log(station_plu.prefix," / ",station_plu.alt_prefix," => Measurements Inserted: ", up_res.length+"/"+vals_plu_sibh.length);
+                                    });
+                                }
                             });
                         }
                     }
@@ -304,7 +318,7 @@ var job_measurements_per_hours_sync = new CronJob(
             })
             
         }).catch(error => {
-            console.log("Error Generic")
+            console.log("Error Generic: ", error)
         })
     },
     null,
@@ -385,13 +399,20 @@ function insertBulkMeasurements(station, measurements, tolerance){
     let on_conflict = "ON CONFLICT (station_prefix_id, date_hour, transmission_type_id) DO NOTHING RETURNING id, station_prefix_id, date_hour, created_at;"
     const q_sibh = pgp.helpers.insert(measurements, cs_sibh) + on_conflict;
     //return await db_sibh.any(q_sibh);
+
+    //console.log("Task Query: ", q_sibh);
+
     return db_sibh.task(async tk => {
         let results = await tk.any(q_sibh);
         
-        let dates = _.map(results, function(e){ return moment(e.date_hour).format('YYYY-MM-DD HH:mm') });
-        let insert_dates       = _.map(measurements, function(e){ return moment(e.date_hour).format('YYYY-MM-DD HH:mm') });
-        let ids                = _.map(measurements, function(e){ return parseInt(e.id) });
-        let transmissions      = _.map(measurements, function(e){ return e.created_at } );
+        if(results.length == 0){return {inserts: []}}
+
+        //console.log("Results: ", results);
+
+        let dates              = _.map(results, function(e){ return e.date_hour });
+        let insert_dates       = _.map(results, function(e){ return moment(e.date_hour).format('YYYY-MM-DD HH:mm') });
+        let ids                = _.map(results, function(e){ return e.id });
+        let transmissions      = _.map(results, function(e){ return e.created_at });
         
         //console.log("Results[",prefix,"]: ",_.max(insert_dates));
         let diffInMinutes = calculateTimeDifference(moment.utc(_.max(insert_dates)), moment().utc()).asMinutes();
@@ -399,6 +420,10 @@ function insertBulkMeasurements(station, measurements, tolerance){
         let transmission_status = (dates.length > 0 && diffInMinutes <= (station.transmission_gap * tolerance)) ? 0 : 1 ; //100% plus in time to gap transmissions
 
         console.log("Diff Minutes: ", diffInMinutes," - Transmission Gap: ", (station.transmission_gap * tolerance)," - Status: ", transmission_status);
+
+        console.log("Last Id: ", _.max(ids));
+        console.log("Last Date: ", _.max(dates));
+        console.log("Last Trans: ", _.max(transmissions));
 
         await tk.none("UPDATE station_prefixes SET transmission_status=$1,date_last_measurement=$2, id_last_measurement=$3, date_last_transmission=$4 WHERE id = $5",[
             transmission_status,
