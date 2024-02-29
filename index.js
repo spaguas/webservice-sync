@@ -159,7 +159,7 @@ var job_update_status = new CronJob(
 var job_measurements_per_hours_sync = new CronJob(
     process.env.CRONJOB_DAEE,
     async function(){   
-        getMeasurementsByHours(168).then(mds => {
+        getMeasurementsByHours(24).then(mds => {
             console.log("Measurements: ", _.size(mds.measurements));
             let mds_grouped = _.groupBy(mds.measurements, function(o){ return o.prefix });
         
@@ -194,7 +194,7 @@ var job_measurements_per_hours_sync = new CronJob(
                     let total_measurements = _.size(measurements);
 
                     console.log("Measurements Finded: ", total_measurements)
-        
+                    
                     _.each(measurements, function(md, k){
         
                         let ws_origin      = "WS-SYNC";
@@ -246,100 +246,101 @@ var job_measurements_per_hours_sync = new CronJob(
         
                     //Start process the measurements
                     //let sync_tasks = [];
-            
-                    if(!_.isEmpty(station_plu) && _.isEmpty(station_flu)){
-                        if(vals_plu_sibh.length > 0){ 
-                            //sync_tasks.push(insertBulkMeasurements(vals_plu_sibh));
-                            let vals_plu_chunkeds = _.chunk(vals_plu_sibh, process.env.CHUNK_ARRAY_SIZE);
+                    if(total_measurements > 0){
+                        if(!_.isEmpty(station_plu) && _.isEmpty(station_flu)){
+                            if(vals_plu_sibh.length > 0){ 
+                                //sync_tasks.push(insertBulkMeasurements(vals_plu_sibh));
+                                let vals_plu_chunkeds = _.chunk(vals_plu_sibh, process.env.CHUNK_ARRAY_SIZE);
 
-                            vals_plu_chunkeds.forEach(vals_plu_chunk => {
-                                insertBulkMeasurements(station_plu, vals_plu_chunk, 3).then(results => {
-                                                                
-                                    //console.log("Results["+prefix+"]: ", results);
-                                    if(results.length > 0){
-                                        db_source.task(async tk => {
-                                            let updateds = await tk.any('UPDATE measurements SET syncronized_at = now() at time zone \'utc\' WHERE level is null AND prefix = $1 AND to_char(datetime, \'YYYY-MM-DD HH24:MI\') IN ($2:list) RETURNING prefix,datetime,syncronized_at',[prefix,results.inserts]);
-                                            return updateds;
-                                        }).then(up_res => {
-                                            console.log("Measurements Syncronized: ", up_res);
-                                            console.log(station_plu.prefix," / ",station_plu.alt_prefix," => Measurements Inserted: ", up_res.length+"/"+vals_plu_sibh.length);
-                                        });
-                                    }                                
-                                });
-                            })                            
-                        }else{
-                            console.log("Without plu measurements")
-                        }
-                    }
-        
-                    if(!_.isEmpty(station_flu) && _.isEmpty(station_plu)){
-                        if(vals_flu_sibh.length > 0){
-                            //sync_tasks.push(insertBulkMeasurements(vals_flu_sibh));
-                            let vals_flu_chunkeds = _.chunk(vals_flu_sibh, process.env.CHUNK_ARRAY_SIZE);
-
-                            vals_flu_chunkeds.forEach(vals_flu_chunk => {
-                                insertBulkMeasurements(station_flu, vals_flu_chunk, 3).then(results => {
-                                    //console.log(station_flu.prefix," => Measurements Inserted: ", results.inserts.length+"/"+vals_flu_sibh.length);
-                                    if(results.length > 0){
-                                        db_source.task(async tk => {
-                                            let updateds = await tk.any('UPDATE measurements SET syncronized_at = now() at time zone \'utc\' WHERE rainfall is null AND prefix = $1 AND to_char(datetime, \'YYYY-MM-DD HH24:MI\') IN ($2:list) RETURNING prefix,datetime,syncronized_at',[prefix,results.inserts]);
-                                            return updateds;
-                                        }).then(up_res => {
-                                            //console.log("Measurements Syncronized: ", up_res.length);
-                                            console.log(station_flu.prefix,"/",station_flu.alt_prefix," => Measurements Inserted: ", results.inserts.length+"/"+vals_flu_sibh.length);
-                                        });
-                                    }
-                                });
-                            })
-                        }else{
-                            console.log("Without flu measurements")
-                        }
-                    }
-
-                    //Posto duplo
-                    if(!_.isEmpty(station_flu) && !_.isEmpty(station_plu)){
-                        if(vals_flu_sibh.length > 0){
-                            let vals_flu_chunkeds = _.chunk(vals_flu_sibh, process.env.CHUNK_ARRAY_SIZE);
-
-                            vals_flu_chunkeds.forEach(vals_flu_chunk => {
-                                insertBulkMeasurements(station_flu, vals_flu_chunk, 3).then(results => {
-                                    //console.log(station_flu.prefix," => Measurements Inserted: ", results.inserts.length+"/"+vals_flu_sibh.length);
-                                    if(results.length > 0){
-                                        db_source.task(async tk => {
-                                            let updateds = await tk.any('UPDATE measurements SET syncronized_at = now() at time zone \'utc\' WHERE prefix = $1 AND to_char(datetime, \'YYYY-MM-DD HH24:MI\') IN ($2:list) RETURNING prefix,datetime,syncronized_at',[prefix,results.inserts]);
-                                            return updateds;
-                                        }).then(up_res => {
-                                            console.log("Measurements Syncronized: ", up_res.length);
-                                            console.log(station_flu.prefix,"/",station_flu.alt_prefix," => Measurements Inserted: ", results.inserts.length+"/"+vals_flu_sibh.length);
-                                        });
-                                    }
-                                });
-                            })
-                        }else{
-                            console.log("Without flu measurements")
-                        }
-
-                        if(vals_plu_sibh.length > 0){ 
-                            //sync_tasks.push(insertBulkMeasurements(vals_plu_sibh));
-                            let vals_plu_chunkeds = _.chunk(vals_plu_sibh, process.env.CHUNK_ARRAY_SIZE);
-
-                            vals_plu_chunkeds.forEach(vals_plu_chunk => {
-
-                                insertBulkMeasurements(station_plu, vals_plu_chunk, 3).then(results => {
-                                    if(results.length > 0){                             
+                                vals_plu_chunkeds.forEach(vals_plu_chunk => {
+                                    insertBulkMeasurements(station_plu, vals_plu_chunk, 3).then(results => {
+                                                                    
                                         //console.log("Results["+prefix+"]: ", results);
-                                        db_source.task(async tk => {
-                                            let updateds = await tk.any('UPDATE measurements SET syncronized_at = now() at time zone \'utc\' WHERE prefix = $1 AND to_char(datetime, \'YYYY-MM-DD HH24:MI\') IN ($2:list) RETURNING prefix,datetime,syncronized_at',[prefix,results.inserts]);
-                                            return updateds;
-                                        }).then(up_res => {
-                                            //console.log("Measurements Syncronized: ", up_res.length);
-                                            console.log(station_plu.prefix," / ",station_plu.alt_prefix," => Measurements Inserted: ", up_res.length+"/"+vals_plu_sibh.length);
-                                        });
-                                    }
-                                });
-                            })
-                        }else{
-                            console.log("Without plu measurements")
+                                        if(results.length > 0){
+                                            db_source.task(async tk => {
+                                                let updateds = await tk.any('UPDATE measurements SET syncronized_at = now() at time zone \'utc\' WHERE level is null AND prefix = $1 AND to_char(datetime, \'YYYY-MM-DD HH24:MI\') IN ($2:list) RETURNING prefix,datetime,syncronized_at',[prefix,results.inserts]);
+                                                return updateds;
+                                            }).then(up_res => {
+                                                console.log("Measurements Syncronized: ", up_res);
+                                                console.log(station_plu.prefix," / ",station_plu.alt_prefix," => Measurements Inserted: ", up_res.length+"/"+vals_plu_sibh.length);
+                                            });
+                                        }                                
+                                    });
+                                })                            
+                            }else{
+                                console.log("Without plu measurements")
+                            }
+                        }
+            
+                        if(!_.isEmpty(station_flu) && _.isEmpty(station_plu)){
+                            if(vals_flu_sibh.length > 0){
+                                //sync_tasks.push(insertBulkMeasurements(vals_flu_sibh));
+                                let vals_flu_chunkeds = _.chunk(vals_flu_sibh, process.env.CHUNK_ARRAY_SIZE);
+
+                                vals_flu_chunkeds.forEach(vals_flu_chunk => {
+                                    insertBulkMeasurements(station_flu, vals_flu_chunk, 3).then(results => {
+                                        //console.log(station_flu.prefix," => Measurements Inserted: ", results.inserts.length+"/"+vals_flu_sibh.length);
+                                        if(results.length > 0){
+                                            db_source.task(async tk => {
+                                                let updateds = await tk.any('UPDATE measurements SET syncronized_at = now() at time zone \'utc\' WHERE rainfall is null AND prefix = $1 AND to_char(datetime, \'YYYY-MM-DD HH24:MI\') IN ($2:list) RETURNING prefix,datetime,syncronized_at',[prefix,results.inserts]);
+                                                return updateds;
+                                            }).then(up_res => {
+                                                //console.log("Measurements Syncronized: ", up_res.length);
+                                                console.log(station_flu.prefix,"/",station_flu.alt_prefix," => Measurements Inserted: ", results.inserts.length+"/"+vals_flu_sibh.length);
+                                            });
+                                        }
+                                    });
+                                })
+                            }else{
+                                console.log("Without flu measurements")
+                            }
+                        }
+
+                        //Posto duplo
+                        if(!_.isEmpty(station_flu) && !_.isEmpty(station_plu)){
+                            if(vals_flu_sibh.length > 0){
+                                let vals_flu_chunkeds = _.chunk(vals_flu_sibh, process.env.CHUNK_ARRAY_SIZE);
+
+                                vals_flu_chunkeds.forEach(vals_flu_chunk => {
+                                    insertBulkMeasurements(station_flu, vals_flu_chunk, 3).then(results => {
+                                        //console.log(station_flu.prefix," => Measurements Inserted: ", results.inserts.length+"/"+vals_flu_sibh.length);
+                                        if(results.length > 0){
+                                            db_source.task(async tk => {
+                                                let updateds = await tk.any('UPDATE measurements SET syncronized_at = now() at time zone \'utc\' WHERE prefix = $1 AND to_char(datetime, \'YYYY-MM-DD HH24:MI\') IN ($2:list) RETURNING prefix,datetime,syncronized_at',[prefix,results.inserts]);
+                                                return updateds;
+                                            }).then(up_res => {
+                                                console.log("Measurements Syncronized: ", up_res.length);
+                                                console.log(station_flu.prefix,"/",station_flu.alt_prefix," => Measurements Inserted: ", results.inserts.length+"/"+vals_flu_sibh.length);
+                                            });
+                                        }
+                                    });
+                                })
+                            }else{
+                                console.log("Without flu measurements")
+                            }
+
+                            if(vals_plu_sibh.length > 0){ 
+                                //sync_tasks.push(insertBulkMeasurements(vals_plu_sibh));
+                                let vals_plu_chunkeds = _.chunk(vals_plu_sibh, process.env.CHUNK_ARRAY_SIZE);
+
+                                vals_plu_chunkeds.forEach(vals_plu_chunk => {
+
+                                    insertBulkMeasurements(station_plu, vals_plu_chunk, 3).then(results => {
+                                        if(results.length > 0){                             
+                                            //console.log("Results["+prefix+"]: ", results);
+                                            db_source.task(async tk => {
+                                                let updateds = await tk.any('UPDATE measurements SET syncronized_at = now() at time zone \'utc\' WHERE prefix = $1 AND to_char(datetime, \'YYYY-MM-DD HH24:MI\') IN ($2:list) RETURNING prefix,datetime,syncronized_at',[prefix,results.inserts]);
+                                                return updateds;
+                                            }).then(up_res => {
+                                                //console.log("Measurements Syncronized: ", up_res.length);
+                                                console.log(station_plu.prefix," / ",station_plu.alt_prefix," => Measurements Inserted: ", up_res.length+"/"+vals_plu_sibh.length);
+                                            });
+                                        }
+                                    });
+                                })
+                            }else{
+                                console.log("Without plu measurements")
+                            }
                         }
                     }
                 })       
