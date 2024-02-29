@@ -173,19 +173,19 @@ var job_measurements_per_hours_sync = new CronJob(
                 
                 _.forEach(mds_grouped, function(measurements, prefix){
                     
-                    let station_flu = _.first(_.filter(stations, function(o){ return (o.prefix == prefix || o.alt_prefix == prefix) && o.station_type_id == '1'}))
-                    let station_plu = _.first(_.filter(stations, function(o){ return (o.prefix == prefix || o.alt_prefix == prefix) && o.station_type_id == '2'}))                    
+                    let station_flu = _.first(_.filter(stations, function(o){ return (o.prefix == prefix || (o.alt_prefix != '' && o.alt_prefix == prefix)) && o.station_type_id == '1'}))
+                    let station_plu = _.first(_.filter(stations, function(o){ return (o.prefix == prefix || (o.alt_prefix != '' && o.alt_prefix == prefix)) && o.station_type_id == '2'}))                    
 
                     //Check if have association if pluviometric station
                     if(!_.isEmpty(station_flu) && station_flu.station_id != null){
                         station_plu = _.first(_.filter(stations, function(o){ return (o.station_id == station_flu.station_id) && o.station_type_id == '2'}));
-                        console.log("Station Plu Finded: ", station_plu)
+                        console.log("Station Plu Finded[",prefix,"]: ", station_plu)
                     }
 
                     //Check if have association if fluviometric station
                     if(!_.isEmpty(station_plu) && station_plu.station_id != null){
                         station_flu = _.first(_.filter(stations, function(o){ return (o.station_id == station_plu.station_id) && o.station_type_id == '1'}))
-                        console.log("Station Flu Finded: ", station_flu)
+                        console.log("Station Flu Finded[",prefix,"]: ", station_flu)
                     }
 
                     let vals_flu_sibh = [];
