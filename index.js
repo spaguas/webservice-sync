@@ -267,6 +267,8 @@ var job_measurements_per_hours_sync = new CronJob(
                                     }                                
                                 });
                             })                            
+                        }else{
+                            console.log("Without plu measurements")
                         }
                     }
         
@@ -289,6 +291,8 @@ var job_measurements_per_hours_sync = new CronJob(
                                     }
                                 });
                             })
+                        }else{
+                            console.log("Without flu measurements")
                         }
                     }
 
@@ -311,6 +315,8 @@ var job_measurements_per_hours_sync = new CronJob(
                                     }
                                 });
                             })
+                        }else{
+                            console.log("Without flu measurements")
                         }
 
                         if(vals_plu_sibh.length > 0){ 
@@ -332,6 +338,8 @@ var job_measurements_per_hours_sync = new CronJob(
                                     }
                                 });
                             })
+                        }else{
+                            console.log("Without plu measurements")
                         }
                     }
                 })       
