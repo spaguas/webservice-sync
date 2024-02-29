@@ -159,10 +159,10 @@ var job_stations_sync = new CronJob(
     process.env.CRONJOB_DAEE,
     function(){   
         syncronizeMeasurements(['SAISP','DAEE'],'WS-SAISP', dateRange, true,null,null," prefix asc, datetime asc");
-        /*syncronizeMeasurements(['IAC'],'WS-IAC', dateRange, true,null,null," prefix asc, datetime asc");
+        syncronizeMeasurements(['IAC'],'WS-IAC', dateRange, true,null,null," prefix asc, datetime asc");
         syncronizeMeasurements(['DAEE'], 'WS-DAEE',dateRange, true,null,null," prefix asc, datetime asc");
         syncronizeMeasurements(['CEMADEN'],'WS-CEMADEN', dateRange, true,null,null," prefix asc, datetime asc");
-        syncronizeMeasurements(['ANA'], 'WS-ANA',dateRange, true,null,null," prefix asc, datetime asc");*/
+        syncronizeMeasurements(['ANA'], 'WS-ANA',dateRange, true,null,null," prefix asc, datetime asc");
     },
     function(e){
         console.log("Job Sync Stations Completed")
@@ -203,7 +203,7 @@ checkMeasurements(24).then(vals => {
     //Process to extract only station_id
     const station_ids = _.uniq(_.map(stations_ok, function(o){ return o.station_id }));
 
-    console.log("Station Ids: ", station_ids);
+    //console.log("Station Ids: ", station_ids);
 
     //console.log("Station OKs: ", station_ids);
     db_sibh.task(async tx => {
@@ -212,26 +212,24 @@ checkMeasurements(24).then(vals => {
 
         return {up_oks: up_oks, up_noks: up_noks};
     }).then(events => {
-        console.log("Events => ", events);
+        console.log("Station with transmission OK => ", _.size(events.up_oks));
     });
 });
 
 
-async function syncronizeMeasurements(station_owners, ws_owner, dateRange){
-    await getMeasurements(station_owners,null,dateRange,true,null,null," prefix asc, datetime asc").then(mds => {
+function syncronizeMeasurements(station_owners, ws_owner, dateRange){
+    getMeasurements(station_owners,null,dateRange,true,null,null," prefix asc, datetime asc").then(mds => {
     
         //Group by prefix
         mds_grouped = _.groupBy(mds, function(o){ return o.prefix });
     
         const total_stations = _.size(mds_grouped);
-
-        console.log("Total of Stations: ", total_stations);
     
         //Getting all Stations from Datasource
         getStations(station_owners).then(stations => {
             //Each by prefixes
             _.each(mds_grouped, function(measurements, prefix){
-                console.log(prefix," => ", measurements.length);
+                //console.log(prefix," => ", measurements.length);
                 let vals_flu_sibh = [];
                 let vals_plu_sibh = [];
                 let vals_piezo_sibh = [];
@@ -268,7 +266,7 @@ async function syncronizeMeasurements(station_owners, ws_owner, dateRange){
                     let ws_origin      = ws_owner;
                     let date_hour_obj  = moment(md.datetime).format("YYYY-MM-DD HH:mm");
                     
-                    console.log(prefix+" - Measurements["+k+"] => date:"+md.datetime+" => ",md.rainfall,",",md.level,",",md.discharge);
+                    //console.log(prefix+" - Measurements["+k+"] => date:"+md.datetime+" => ",md.rainfall,",",md.level,",",md.discharge);
 
                     //Check if rainfall is fill and station_plu exist
                     if(md.rainfall != null && station_plu){
@@ -327,10 +325,13 @@ async function syncronizeMeasurements(station_owners, ws_owner, dateRange){
     
                 //Execute all sync tasks
                 Promise.all(sync_tasks).then(results => {
-                   let total_length = _.sumBy(results,'length');
+                   let total_length = 0;
+
+                   _.each(results, function(x){
+                    total_length += _.size(x);
+                   })
+
                    console.log(ws_owner+" - Prefix: "+prefix+" - Measurements Inserted: "+total_length+"/"+total_measurements);
-                   
-                   console.log("Results: ", results);
                 });
             });
         });
@@ -346,9 +347,6 @@ function checkMeasurements(hours){
         
         return {stations: stations, results: results};
     })
-    /*return db_source.task(async tk => {
-        return await tk.any("SELECT prefix, max(datetime) as datetime, max(created_at) as created_at FROM measurements WHERE datetime >= now() - interval '$1 hours' GROUP BY prefix", [hours]);
-    })*/
 }
 
 /**
