@@ -155,10 +155,15 @@ var job_update_status = new CronJob(
     true,
     'America/Sao_Paulo');
 
+// updateTransmissionStatus().then(res => {
+//     console.log("Stations Lazy: ",res.noks.length);
+// })
+
 //Execute 1 hours
 var job_measurements_per_hours_sync = new CronJob(
     process.env.CRONJOB_DAEE,
     async function(){   
+        console.log('começando busca de medições');
         getMeasurementsByHours(24).then(mds => {
             console.log("Measurements: ", _.size(mds.measurements));
             let mds_grouped = _.groupBy(mds.measurements, function(o){ return o.prefix });
@@ -369,53 +374,27 @@ async function getMeasurementsByHours(hours){
 
 async function updateTransmissionStatus(){
     return db_sibh.task(async tk => {
-        const stations_status = await tk.any('SELECT sp.id, sp.date_last_transmission, sp.transmission_gap, age(now() at time zone \'utc\', sp.date_last_transmission) as diff from station_prefixes as sp where transmission_gap is not null');
+        
+        const stations_list = await tk.any('SELECT id, date_last_measurement, transmission_gap, prefix FROM station_prefixes where date_last_measurement is not null');
 
         let stations_prefixes_ids_ok = [];
         let stations_prefixes_ids_nok = [];
 
-        _.each(stations_status, function(station_status){
-            let diff = _.pickBy(station_status.diff, value => value !== null);
-            let diff_keys = Object.keys(diff);
-
-            let diff_minutes = 0;
-            _.each(diff_keys, function(key){
-                if(key == "years"){
-                    diff_minutes += (diff.years * 525600);
-                }
-                else if(key == "months"){
-                    diff_minutes += (diff.months * 43800);
-                }
-                else if(key == "days"){
-                    diff_minutes += (diff.days * 1440);
-                }
-                else if(key == "hours"){
-                    diff_minutes += (diff.hours * 60);
-                }
-                else if(key == "minutes"){
-                    diff_minutes += (diff.minutes)
-                }
-                else if(key == "seconds"){
-                    diff_minutes += (diff.seconds/60);
-                }
-            })
-
-            is_lazy = diff_minutes > (station_status.transmission_gap * 3); //300% of tolerance
-
-            if(is_lazy){
-                stations_prefixes_ids_nok.push(station_status.id);
+        stations_list.forEach(station=>{
+            let m_date = moment(station.date_last_measurement).subtract(3, 'hours')
+            let diff = Math.abs(m_date.diff(moment(), 'minutes'))
+            if(diff <= 1440 || diff < (station.transmission_gap*3)){
+                stations_prefixes_ids_ok.push(station.id)
+            } else {
+                console.log(station.prefix,diff, station.transmission_gap*3, station.date_last_measurement);
+                stations_prefixes_ids_nok.push(station.id)
             }
-            else{
-                stations_prefixes_ids_ok.push(station_status.id);
-            }
-
-            console.log("Station Id: ", station_status.id, " - Date: ", station_status.date_last_transmission," - Diff: ", diff_minutes," - Transmissão OK?: ", !is_lazy);
-        });
-
-        //const oks  = await tk.any("UPDATE station_prefixes SET transmission_status = 0 WHERE id IN ($1:list) RETURNING id",[stations_prefixes_ids_ok]);
+        })
+        
+        const oks  = await tk.any("UPDATE station_prefixes SET transmission_status = 0 WHERE id IN ($1:list) RETURNING id",[stations_prefixes_ids_ok]);
         const noks = await tk.any("UPDATE station_prefixes SET transmission_status = 1 WHERE id IN ($1:list) RETURNING id",[stations_prefixes_ids_nok]);
 
-        return {statuses: stations_status, oks: [], noks: noks}
+        return {statuses: stations_list, oks: [], noks: noks}
     });
 }
 
