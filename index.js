@@ -22,6 +22,8 @@ require('dotenv').config();
 const cliProgress = require('cli-progress');
 const { query } = require('express');
 
+const winston = require('winston');
+
 // add bars
 //const progress_full = multibar.create(100, 0);
 
@@ -39,7 +41,11 @@ const database_addr_sibh = process.env.DATABASE_ADDR_SIBH;
 const database_port_sibh = process.env.DATABASE_PORT_SIBH;
 const database_name_sibh = process.env.DATABASE_NAME_SIBH;
 
+let LOGGER;
+
 console.log("Environments Variables Loaded!");
+
+initializeLog()
 
 /* Loading config to Pg-Promise to connect to PostgreSQL */
 const pgp = require('pg-promise')({
@@ -72,7 +78,7 @@ const pgp = require('pg-promise')({
     task(e) {
         if (e.ctx.finish) {
             // this is a task->finish event;
-            console.log('Duration(ms):', e.ctx.duration);
+            // console.log('Duration(ms):', e.ctx.duration);
             if (e.ctx.success) {
                 // e.ctx.result = resolved data;
             } else {
@@ -80,7 +86,7 @@ const pgp = require('pg-promise')({
             }
         } else {
             // this is a task->start event;
-            console.log('Start Time:', e.ctx.start);
+            // console.log('Start Time:', e.ctx.start);
         }
     },
     error(err, e) {
@@ -144,6 +150,8 @@ let dateRange = [startDt,endDt];
 
 
 
+
+
 var job_update_status = new CronJob(
     process.env.CRONJOB_UPDATE_STATION_STATUS,
     async function(){
@@ -163,202 +171,197 @@ var job_update_status = new CronJob(
 var job_measurements_per_hours_sync = new CronJob(
     process.env.CRONJOB_DAEE,
     async function(){   
-        console.log('começando busca de medições');
-        getMeasurementsByHours(24).then(mds => {
-            console.log("Measurements: ", _.size(mds.measurements));
-            let mds_grouped = _.groupBy(mds.measurements, function(o){ return o.prefix });
-        
-            //console.log("Measurements Group: ", Object.keys(mds_grouped));
-        
-            getAllStations().then((stations) => {
-                //console.log("Stations: ", list_stations.stations);
-                //let stations = _.groupBy(list_stations.stations, function(o){ return o.prefix });
-        
-                console.log("Total of Stations: ", _.size(stations));
-                
-                _.forEach(mds_grouped, function(measurements, prefix){
-                    
-                    let station_flu = _.first(_.filter(stations, function(o){ return (o.prefix == prefix || (o.alt_prefix != '' && o.alt_prefix == prefix)) && o.station_type_id == '1'}))
-                    let station_plu = _.first(_.filter(stations, function(o){ return (o.prefix == prefix || (o.alt_prefix != '' && o.alt_prefix == prefix)) && o.station_type_id == '2'}))                    
+        startSync().then(res=>{
 
-                    //Check if have association if pluviometric station
-                    if(!_.isEmpty(station_flu) && station_flu.station_id != null){
-                        station_plu = _.first(_.filter(stations, function(o){ return (o.station_id == station_flu.station_id) && o.station_type_id == '2'}));
-                        console.log("Station Plu Finded[",prefix,"]: ", station_plu)
-                    }
-
-                    //Check if have association if fluviometric station
-                    if(!_.isEmpty(station_plu) && station_plu.station_id != null){
-                        station_flu = _.first(_.filter(stations, function(o){ return (o.station_id == station_plu.station_id) && o.station_type_id == '1'}))
-                        console.log("Station Flu Finded[",prefix,"]: ", station_flu)
-                    }
-
-                    let vals_flu_sibh = [];
-                    let vals_plu_sibh = [];
-                    let total_rainfall = 0;
-                    let total_measurements = _.size(measurements);
-
-                    console.log("Measurements Finded: ", total_measurements)
-                    
-                    _.each(measurements, function(md, k){
-        
-                        let ws_origin      = "WS-SYNC";
-                        let date_hour_obj  = moment(md.datetime).format("YYYY-MM-DD HH:mm");
-                        
-                        //console.log(prefix+" - Measurements["+k+"] => date:"+md.datetime+" => ",md.rainfall,",",md.level,",",md.discharge);
-        
-                        //Check if rainfall is fill and station_plu exist
-                        if(md.rainfall != null && !_.isEmpty(station_plu)){
-                                                        
-                            vals_plu_sibh.push({
-                                date_hour: date_hour_obj,
-                                value: md.rainfall,
-                                read_value: total_rainfall,
-                                battery_voltage: md.battery_level,
-                                information_origin: ws_origin,
-                                measurement_classification_type_id: 3,
-                                transmission_type_id: 4,
-                                station_prefix_id: station_plu.id,
-                                created_at: md.created_at,
-                                updated_at: md.created_at,
-                                transmission_gap: station_plu.transmission_gap,
-                                measurement_gap: station_plu.measurement_gap
-                            });
-
-                            total_rainfall += md.rainfall;
-                        }
-        
-                        //Check if level is fill and station_flu exist
-                        if(md.level != null && !_.isEmpty(station_flu)){
-        
-                            vals_flu_sibh.push({
-                                date_hour: date_hour_obj,
-                                value: md.level,
-                                read_value: md.discharge,
-                                battery_voltage: md.battery_level,
-                                information_origin: ws_origin,
-                                measurement_classification_type_id: 3,
-                                transmission_type_id: 4,
-                                station_prefix_id: station_flu.id,
-                                created_at: md.created_at,
-                                updated_at: md.created_at,
-                                transmission_gap: station_flu.transmission_gap,
-                                measurement_gap: station_flu.measurement_gap
-                            });
-                        }
-        
-                    });
-        
-                    //Start process the measurements
-                    //let sync_tasks = [];
-                    if(total_measurements > 0){
-                        if(!_.isEmpty(station_plu) && _.isEmpty(station_flu)){
-                            if(vals_plu_sibh.length > 0){ 
-                                //sync_tasks.push(insertBulkMeasurements(vals_plu_sibh));
-                                let vals_plu_chunkeds = _.chunk(vals_plu_sibh, process.env.CHUNK_ARRAY_SIZE);
-
-                                vals_plu_chunkeds.forEach(vals_plu_chunk => {
-                                    insertBulkMeasurements(station_plu, vals_plu_chunk, 3).then(results => {
-                                                                    
-                                        //console.log("Results["+prefix+"]: ", results);
-                                        if(results.length > 0){
-                                            db_source.task(async tk => {
-                                                let updateds = await tk.any('UPDATE measurements SET syncronized_at = now() at time zone \'utc\' WHERE level is null AND prefix = $1 AND to_char(datetime, \'YYYY-MM-DD HH24:MI\') IN ($2:list) RETURNING prefix,datetime,syncronized_at',[prefix,results.inserts]);
-                                                return updateds;
-                                            }).then(up_res => {
-                                                console.log("Measurements Syncronized: ", up_res);
-                                                console.log(station_plu.prefix," / ",station_plu.alt_prefix," => Measurements Inserted: ", up_res.length+"/"+vals_plu_sibh.length);
-                                            });
-                                        }                                
-                                    });
-                                })                            
-                            }else{
-                                console.log("Without plu measurements")
-                            }
-                        }
-            
-                        if(!_.isEmpty(station_flu) && _.isEmpty(station_plu)){
-                            if(vals_flu_sibh.length > 0){
-                                //sync_tasks.push(insertBulkMeasurements(vals_flu_sibh));
-                                let vals_flu_chunkeds = _.chunk(vals_flu_sibh, process.env.CHUNK_ARRAY_SIZE);
-
-                                vals_flu_chunkeds.forEach(vals_flu_chunk => {
-                                    insertBulkMeasurements(station_flu, vals_flu_chunk, 3).then(results => {
-                                        //console.log(station_flu.prefix," => Measurements Inserted: ", results.inserts.length+"/"+vals_flu_sibh.length);
-                                        if(results.length > 0){
-                                            db_source.task(async tk => {
-                                                let updateds = await tk.any('UPDATE measurements SET syncronized_at = now() at time zone \'utc\' WHERE rainfall is null AND prefix = $1 AND to_char(datetime, \'YYYY-MM-DD HH24:MI\') IN ($2:list) RETURNING prefix,datetime,syncronized_at',[prefix,results.inserts]);
-                                                return updateds;
-                                            }).then(up_res => {
-                                                //console.log("Measurements Syncronized: ", up_res.length);
-                                                console.log(station_flu.prefix,"/",station_flu.alt_prefix," => Measurements Inserted: ", results.inserts.length+"/"+vals_flu_sibh.length);
-                                            });
-                                        }
-                                    });
-                                })
-                            }else{
-                                console.log("Without flu measurements")
-                            }
-                        }
-
-                        //Posto duplo
-                        if(!_.isEmpty(station_flu) && !_.isEmpty(station_plu)){
-                            if(vals_flu_sibh.length > 0){
-                                let vals_flu_chunkeds = _.chunk(vals_flu_sibh, process.env.CHUNK_ARRAY_SIZE);
-
-                                vals_flu_chunkeds.forEach(vals_flu_chunk => {
-                                    insertBulkMeasurements(station_flu, vals_flu_chunk, 3).then(results => {
-                                        //console.log(station_flu.prefix," => Measurements Inserted: ", results.inserts.length+"/"+vals_flu_sibh.length);
-                                        if(results.length > 0){
-                                            db_source.task(async tk => {
-                                                let updateds = await tk.any('UPDATE measurements SET syncronized_at = now() at time zone \'utc\' WHERE prefix = $1 AND to_char(datetime, \'YYYY-MM-DD HH24:MI\') IN ($2:list) RETURNING prefix,datetime,syncronized_at',[prefix,results.inserts]);
-                                                return updateds;
-                                            }).then(up_res => {
-                                                console.log("Measurements Syncronized: ", up_res.length);
-                                                console.log(station_flu.prefix,"/",station_flu.alt_prefix," => Measurements Inserted: ", results.inserts.length+"/"+vals_flu_sibh.length);
-                                            });
-                                        }
-                                    });
-                                })
-                            }else{
-                                console.log("Without flu measurements")
-                            }
-
-                            if(vals_plu_sibh.length > 0){ 
-                                //sync_tasks.push(insertBulkMeasurements(vals_plu_sibh));
-                                let vals_plu_chunkeds = _.chunk(vals_plu_sibh, process.env.CHUNK_ARRAY_SIZE);
-
-                                vals_plu_chunkeds.forEach(vals_plu_chunk => {
-
-                                    insertBulkMeasurements(station_plu, vals_plu_chunk, 3).then(results => {
-                                        if(results.length > 0){                             
-                                            //console.log("Results["+prefix+"]: ", results);
-                                            db_source.task(async tk => {
-                                                let updateds = await tk.any('UPDATE measurements SET syncronized_at = now() at time zone \'utc\' WHERE prefix = $1 AND to_char(datetime, \'YYYY-MM-DD HH24:MI\') IN ($2:list) RETURNING prefix,datetime,syncronized_at',[prefix,results.inserts]);
-                                                return updateds;
-                                            }).then(up_res => {
-                                                //console.log("Measurements Syncronized: ", up_res.length);
-                                                console.log(station_plu.prefix," / ",station_plu.alt_prefix," => Measurements Inserted: ", up_res.length+"/"+vals_plu_sibh.length);
-                                            });
-                                        }
-                                    });
-                                })
-                            }else{
-                                console.log("Without plu measurements")
-                            }
-                        }
-                    }
-                })       
-            })
-            
-        }).catch(error => {
-            console.log("Error Generic: ", error)
         })
     },
     null,
     true,
     'America/Sao_Paulo'
 );
+
+// startSync()
+
+
+async function startSync(){
+    console.log('começando busca de medições');
+    getMeasurementsByHours(24).then(mds => {
+        console.log("Measurements: ", _.size(mds.measurements));
+        let mds_grouped = _.groupBy(mds.measurements, function(o){ return o.prefix });
+        let to_register = {plu:[], flu:[]}
+    
+        //console.log("Measurements Group: ", Object.keys(mds_grouped));
+    
+        getAllStations().then((stations) => {
+            //console.log("Stations: ", list_stations.stations);
+            //let stations = _.groupBy(list_stations.stations, function(o){ return o.prefix });
+    
+            console.log("Total of Stations: ", _.size(stations));
+            
+            _.forEach(mds_grouped, function(measurements, prefix){
+
+                console.log('Montando medições do prefixo => ' + prefix)
+                
+                let stations_flu = _.filter(stations, function(o){ return (o.prefix === prefix || o.alt_prefix == prefix) && o.station_type_id == '1'})
+                let stations_plu = _.filter(stations, function(o){ return (o.prefix === prefix || o.alt_prefix == prefix) && o.station_type_id == '2'})
+                let station_flu, station_plu
+
+                //Check if have association if fluviometric station
+                if(stations_flu.length > 0){
+                    if(stations_flu.length > 1){
+                        station_flu = stations_flu.filter(x=>x.alt_prefix === prefix)[0] || stations_flu.filter(x=>x.prefix === prefix)[0]
+                    } else {
+                        station_flu = stations_flu[0]
+                    }
+                    console.log('Prefixo FLU localizado => ' + station_flu.prefix);
+                }
+
+                //Check if have association if pluviometric station
+                if(stations_plu.length > 0){
+                    if(stations_plu.length > 1){
+                        station_plu = stations_plu.filter(x=>x.alt_prefix === prefix)[0] || stations_plu.filter(x=>x.prefix === prefix)[0]
+                    } else {
+                        station_plu = stations_plu[0]
+                    }
+                    console.log('Prefixo PLU localizado => ' + station_plu.prefix);
+                }
+
+                let vals_flu_sibh = [];
+                let vals_plu_sibh = [];
+                let total_rainfall = 0;
+                let total_measurements = _.size(measurements);
+
+                console.log("Measurements Finded: ", total_measurements)
+                
+                if(station_plu || station_flu){
+                    _.each(measurements, function(md, k){
+    
+                        let ws_origin      = "WS-SYNC";
+                        let date_hour_obj  = moment(md.datetime).format("YYYY-MM-DD HH:mm");
+        
+                        //Check if rainfall is fill and station_plu exist
+                        if(md.rainfall != null){
+                            if(station_plu){
+                                if(station_plu.prefix === '350970004H'){
+                                    console.log(md.rainfall);
+                                    console.log(md.rainfall);
+                                    console.log(md.rainfall);
+                                    console.log(md.rainfall);
+                                    console.log(md.rainfall);
+                                    console.log(md.rainfall);
+                                    console.log(md.rainfall);
+                                    console.log(md.rainfall);
+                                }
+                                
+                                vals_plu_sibh.push({
+                                    date_hour: date_hour_obj,
+                                    value: md.rainfall,
+                                    read_value: null,
+                                    battery_voltage: md.battery_level,
+                                    information_origin: ws_origin,
+                                    measurement_classification_type_id: 3,
+                                    transmission_type_id: 4,
+                                    station_prefix_id: station_plu.id,
+                                    created_at: md.created_at,
+                                    updated_at: md.created_at,
+                                    transmission_gap: station_plu.transmission_gap,
+                                    measurement_gap: station_plu.measurement_gap
+                                });
+                                // total_rainfall += md.rainfall;
+                            } else {
+                                to_register.plu.push(prefix)
+                                // LOGGER.info('Posto PLU não cadastrado ' + prefix);
+                            }
+                        }
+        
+                        //Check if level is fill and station_flu exist
+                        if(md.level != null){
+                            if(station_flu){
+                                vals_flu_sibh.push({
+                                    date_hour: date_hour_obj,
+                                    value: md.level,
+                                    read_value: md.discharge,
+                                    battery_voltage: md.battery_level,
+                                    information_origin: ws_origin,
+                                    measurement_classification_type_id: 3,
+                                    transmission_type_id: 4,
+                                    station_prefix_id: station_flu.id,
+                                    created_at: md.created_at,
+                                    updated_at: md.created_at,
+                                    transmission_gap: station_flu.transmission_gap,
+                                    measurement_gap: station_flu.measurement_gap
+                                });
+                            } else {
+                                to_register.flu.push(prefix)
+                                // LOGGER.info('Posto FLU não cadastrado ' + prefix);
+                            }
+                            
+                        }
+                    });
+
+
+                    if(vals_plu_sibh.length > 0){ 
+                        //sync_tasks.push(insertBulkMeasurements(vals_plu_sibh));
+                        let vals_plu_chunkeds = _.chunk(vals_plu_sibh, process.env.CHUNK_ARRAY_SIZE);
+
+                        vals_plu_chunkeds.forEach(vals_plu_chunk => {
+                            insertBulkMeasurements(station_plu, vals_plu_chunk, 3).then(results => {
+                                // console.log(results);
+                                //console.log("Results["+prefix+"]: ", results);
+                                // if(results.length > 0){
+                                //     db_source.task(async tk => {
+                                //         let updateds = await tk.any('UPDATE measurements SET syncronized_at = now() at time zone \'utc\' WHERE level is null AND prefix = $1 AND to_char(datetime, \'YYYY-MM-DD HH24:MI\') IN ($2:list) RETURNING prefix,datetime,syncronized_at',[prefix,results.inserts]);
+                                //         return updateds;
+                                //     }).then(up_res => {
+                                //         console.log("Measurements Syncronized: ", up_res);
+                                //         console.log(station_plu.prefix," / ",station_plu.alt_prefix," => Measurements Inserted: ", up_res.length+"/"+vals_plu_sibh.length);
+                                //     });
+                                // }                                
+                            });
+                        })                            
+                    }else{
+                        console.log("Without plu measurements")
+                    }
+
+                    if(vals_flu_sibh.length > 0){
+                        //sync_tasks.push(insertBulkMeasurements(vals_flu_sibh));
+                        let vals_flu_chunkeds = _.chunk(vals_flu_sibh, process.env.CHUNK_ARRAY_SIZE);
+
+                        vals_flu_chunkeds.forEach(vals_flu_chunk => {
+                            insertBulkMeasurements(station_flu, vals_flu_chunk, 3).then(results => {
+                                //console.log(station_flu.prefix," => Measurements Inserted: ", results.inserts.length+"/"+vals_flu_sibh.length);
+                                // if(results.length > 0){
+                                //     db_source.task(async tk => {
+                                //         let updateds = await tk.any('UPDATE measurements SET syncronized_at = now() at time zone \'utc\' WHERE prefix = $1 AND to_char(datetime, \'YYYY-MM-DD HH24:MI\') IN ($2:list) RETURNING prefix,datetime,syncronized_at',[prefix,results.inserts]);
+                                //         return updateds;
+                                //     }).then(up_res => {
+                                //         //console.log("Measurements Syncronized: ", up_res.length);
+                                //         console.log(station_flu.prefix,"/",station_flu.alt_prefix," => Measurements Inserted: ", results.inserts.length+"/"+vals_flu_sibh.length);
+                                //     });
+                                // }
+                            });
+                        })
+                    }else{
+                        console.log("Without flu measurements")
+                    }
+                }
+            })
+            
+            if(to_register.plu.length > 0){
+                TO_ADD_LOG.info('Postos PLU não cadastrados ' + [...new Set(to_register.plu)].length + ' ===> ' + [...new Set(to_register.plu)].join(', '));
+            }
+
+            if(to_register.flu.length > 0){
+                TO_ADD_LOG.info('Postos FLU não cadastrados ' + [...new Set(to_register.flu)].length + ' ===> ' + [...new Set(to_register.flu)].join(', '));
+            }
+
+            
+        })
+        
+    }).catch(error => {
+        console.log("Error Generic: ", error)
+    })
+}
 
 /**
  * Function to get measurements
@@ -386,7 +389,6 @@ async function updateTransmissionStatus(){
             if(diff <= 1440 || diff < (station.transmission_gap*3)){
                 stations_prefixes_ids_ok.push(station.id)
             } else {
-                console.log(station.prefix,diff, station.transmission_gap*3, station.date_last_measurement);
                 stations_prefixes_ids_nok.push(station.id)
             }
         })
@@ -411,7 +413,14 @@ function insertBulkMeasurements(station, measurements, tolerance){
     //console.log("Task Query: ", q_sibh);
 
     return db_sibh.task(async tk => {
-        let results = await tk.any(q_sibh);
+        let results = []
+        try{
+            results = await tk.any(q_sibh);
+        } catch(e){
+            console.log(e);
+            console.log(measurements);
+        }
+        
         
         if(results.length == 0){return {inserts: []}}
 
@@ -423,18 +432,17 @@ function insertBulkMeasurements(station, measurements, tolerance){
         let transmissions      = _.map(results, function(e){ return e.created_at });
         
         //console.log("Results[",prefix,"]: ",_.max(insert_dates));
-        let diffInMinutes = calculateTimeDifference(moment.utc(_.max(insert_dates)), moment().utc()).asMinutes();
+        // let diffInMinutes = calculateTimeDifference(moment.utc(_.max(insert_dates)), moment().utc()).asMinutes();
                 
-        let transmission_status = (dates.length > 0 && diffInMinutes <= (station.transmission_gap * tolerance)) ? 0 : 1 ; //100% plus in time to gap transmissions
+        // let transmission_status = (dates.length > 0 && diffInMinutes <= (station.transmission_gap * tolerance)) ? 0 : 1 ; //100% plus in time to gap transmissions
 
-        console.log("Diff Minutes: ", diffInMinutes," - Transmission Gap: ", (station.transmission_gap * tolerance)," - Status: ", transmission_status);
+        // console.log("Diff Minutes: ", diffInMinutes," - Transmission Gap: ", (station.transmission_gap * tolerance)," - Status: ", transmission_status);
 
         console.log("Last Id: ", _.max(ids));
         console.log("Last Date: ", _.max(dates));
         console.log("Last Trans: ", _.max(transmissions));
 
-        await tk.none("UPDATE station_prefixes SET transmission_status=$1,date_last_measurement=$2, id_last_measurement=$3, date_last_transmission=$4 WHERE id = $5",[
-            transmission_status,
+        await tk.none("UPDATE station_prefixes SET date_last_measurement=$1, id_last_measurement=$2, date_last_transmission=$3 WHERE id = $4",[
             _.max(dates),
             _.max(ids),
             _.max(transmissions),
@@ -469,4 +477,21 @@ async function getAllStations(){
         
         let stations = await db_sibh.any(stations_query);
         return stations;
+}
+
+
+function initializeLog(){
+    const myFormat = winston.format.printf(({ level, message, timestamp }) => {
+        return `${timestamp} ${level}: ${message}`;
+    });
+    TO_ADD_LOG = winston.createLogger({
+        format: winston.format.combine(
+            winston.format.timestamp(),
+            myFormat
+        ),
+        transports: [
+            new winston.transports.Console(),
+            new winston.transports.File({ filename: 'logs/stations_to_add.log' })
+        ]
+    });
 }

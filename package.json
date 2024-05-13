@@ -22,7 +22,7 @@
     "pg": "^8.7.3",
     "pg-promise": "^10.11.1",
     "redis": "^4.6.5",
-    "winston": "^3.8.2"
+    "winston": "^3.13.0"
   },
   "author": "",
   "license": "ISC"
