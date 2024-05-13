@@ -241,18 +241,7 @@ async function startSync(){
         
                         //Check if rainfall is fill and station_plu exist
                         if(md.rainfall != null){
-                            if(station_plu){
-                                if(station_plu.prefix === '350970004H'){
-                                    console.log(md.rainfall);
-                                    console.log(md.rainfall);
-                                    console.log(md.rainfall);
-                                    console.log(md.rainfall);
-                                    console.log(md.rainfall);
-                                    console.log(md.rainfall);
-                                    console.log(md.rainfall);
-                                    console.log(md.rainfall);
-                                }
-                                
+                            if(station_plu){                                
                                 vals_plu_sibh.push({
                                     date_hour: date_hour_obj,
                                     value: md.rainfall,
