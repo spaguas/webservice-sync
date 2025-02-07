@@ -395,7 +395,7 @@ async function updateTransmissionStatus(){
  */
 function insertBulkMeasurements(station, measurements, tolerance){
     //let on_conflict = "ON CONFLICT (station_prefix_id, date_hour, transmission_type_id) DO UPDATE SET read_value = EXCLUDED.read_value, value = EXCLUDED.value, battery_voltage=EXCLUDED.battery_voltage RETURNING id, station_prefix_id, date_hour, created_at;"
-    let on_conflict = "ON CONFLICT (station_prefix_id, date_hour, transmission_type_id) DO NOTHING RETURNING id, station_prefix_id, date_hour, created_at;"
+    let on_conflict = "ON CONFLICT (station_prefix_id, date_hour, transmission_type_id) DO UPDATE SET value=EXCLUDED.value, read_value=EXCLUDED.read_value WHERE measurements.value IS DISTINCT FROM EXCLUDED.value OR measurements.read_value IS DISTINCT FROM EXCLUDED.read_value RETURNING id, station_prefix_id, date_hour, created_at;"
     const q_sibh = pgp.helpers.insert(measurements, cs_sibh) + on_conflict;
     //return await db_sibh.any(q_sibh);
 
